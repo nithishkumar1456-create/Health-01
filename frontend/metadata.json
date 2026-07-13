@@ -1,0 +1,6 @@
+{
+  "name": "HEALTH-02",
+  "description": "Doctor discovery, verified-booking-adjacent, and health-article platform with Client, Doctor, and Admin roles.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
