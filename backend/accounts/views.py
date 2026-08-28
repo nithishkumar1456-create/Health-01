@@ -89,7 +89,7 @@ class VerifyDoctorView(APIView):
 
 class UserListView(generics.ListAPIView):
     serializer_class = UserSerializer
-    permission_classes = [IsAdmin]
+    permission_classes = [IsAdminOrSupport]
 
     def get_queryset(self):
         queryset = User.objects.all().order_by('-date_joined')
@@ -125,8 +125,8 @@ class ProfileUpdateView(APIView):
 
 
 class AdminCreateUserView(APIView):
-    """Admin-only endpoint to create any user role including admin."""
-    permission_classes = [IsAdmin]
+    """Admin and Support endpoint to create user roles including doctor."""
+    permission_classes = [IsAdminOrSupport]
 
     def post(self, request):
         serializer = AdminCreateUserSerializer(data=request.data)

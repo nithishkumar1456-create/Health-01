@@ -152,15 +152,29 @@ class AdminCreateUserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=False, allow_blank=True)
     specialization = serializers.CharField(required=False, allow_blank=True, write_only=True)
     registration_number = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    qualifications = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    medical_council = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    clinic_name = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    consultation_fee = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    is_verified = serializers.BooleanField(required=False, default=True, write_only=True)
 
     class Meta:
         model = User
-        fields = ['username', 'email', 'password', 'role', 'phone', 'first_name', 'last_name', 'specialization', 'registration_number']
+        fields = [
+            'username', 'email', 'password', 'role', 'phone', 'first_name', 'last_name',
+            'specialization', 'registration_number', 'qualifications', 'medical_council',
+            'clinic_name', 'consultation_fee', 'is_verified'
+        ]
 
     def create(self, validated_data):
         role = validated_data.get('role', User.CLIENT)
         specialization = validated_data.pop('specialization', '')
         registration_number = validated_data.pop('registration_number', '')
+        qualifications = validated_data.pop('qualifications', 'MBBS, MD')
+        medical_council = validated_data.pop('medical_council', '')
+        clinic_name = validated_data.pop('clinic_name', '')
+        consultation_fee = validated_data.pop('consultation_fee', '')
+        is_verified = validated_data.pop('is_verified', True)
         password = validated_data.pop('password', None) or User.objects.make_random_password()
         
         user = User(**validated_data)
@@ -170,9 +184,13 @@ class AdminCreateUserSerializer(serializers.ModelSerializer):
         if role == User.DOCTOR:
             DoctorProfile.objects.create(
                 user=user,
-                specialization=specialization,
-                registration_number=registration_number or 'REG-ADMIN-CREATED',
-                is_verified=True  # Admin-created doctors are auto-verified
+                specialization=specialization or 'General Medicine',
+                registration_number=registration_number or f'REG-{user.id}-CREATED',
+                education=qualifications,
+                title=f"Consultant ({specialization})" if specialization else "Consultant Practitioner",
+                clinic_timings="09:00 AM - 01:00 PM, 04:30 PM - 08:00 PM (Mon-Sat)",
+                bio=f"{qualifications} specialist in {specialization}. Council: {medical_council}.",
+                is_verified=is_verified
             )
             
         return user
