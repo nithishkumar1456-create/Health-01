@@ -2,7 +2,7 @@ import { User, Article, DoctorListing, Booking, SupportIssue, Queue, QueueEntry,
 
 // Helper to check if backend is configured
 const getApiBaseUrl = (): string => {
-  return ((import.meta as any).env.VITE_API_BASE_URL || '').replace(/\/$/, '');
+  return ((import.meta as any).env.VITE_API_BASE_URL || 'https://health-01.onrender.com').replace(/\/$/, '');
 };
 
 export const isRealBackendConfigured = (): boolean => {
