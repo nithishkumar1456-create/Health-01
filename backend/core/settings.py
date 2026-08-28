@@ -103,6 +103,9 @@ if DATABASE_URL:
             ssl_require=True
         )
     }
+    # Disable server side cursors if using Supabase pooler or pgbouncer
+    if 'pooler.supabase.com' in DATABASE_URL or '6543' in DATABASE_URL or 'pgbouncer=true' in DATABASE_URL:
+        DATABASES['default']['DISABLE_SERVER_SIDE_CURSORS'] = True
 else:
     DATABASES = {
         'default': {
