@@ -167,6 +167,7 @@ class AdminCreateUserSerializer(serializers.ModelSerializer):
         ]
 
     def create(self, validated_data):
+        import secrets
         role = validated_data.get('role', User.CLIENT)
         specialization = validated_data.pop('specialization', '')
         registration_number = validated_data.pop('registration_number', '')
@@ -175,7 +176,9 @@ class AdminCreateUserSerializer(serializers.ModelSerializer):
         clinic_name = validated_data.pop('clinic_name', '')
         consultation_fee = validated_data.pop('consultation_fee', '')
         is_verified = validated_data.pop('is_verified', True)
-        password = validated_data.pop('password', None) or User.objects.make_random_password()
+        password = validated_data.pop('password', None)
+        if not password:
+            password = secrets.token_urlsafe(12)
         
         user = User(**validated_data)
         user.set_password(password)
@@ -186,12 +189,38 @@ class AdminCreateUserSerializer(serializers.ModelSerializer):
                 user=user,
                 specialization=specialization or 'General Medicine',
                 registration_number=registration_number or f'REG-{user.id}-CREATED',
-                education=qualifications,
+                education=qualifications or 'MBBS, MD',
                 title=f"Consultant ({specialization})" if specialization else "Consultant Practitioner",
                 clinic_timings="09:00 AM - 01:00 PM, 04:30 PM - 08:00 PM (Mon-Sat)",
                 bio=f"{qualifications} specialist in {specialization}. Council: {medical_council}.",
                 is_verified=is_verified
             )
+            
+            # Create corresponding directory listing in Doctor model
+            try:
+                from doctors.models import Doctor
+                full_name = f"Dr. {user.first_name} {user.last_name}".strip()
+                if full_name == "Dr.":
+                    full_name = f"Dr. {user.username}"
+                
+                Doctor.objects.create(
+                    name=full_name,
+                    specialization=specialization or 'General Medicine',
+                    phone=user.phone or '+91 98765 43210',
+                    address=clinic_name or 'Medical Health Center, New Delhi',
+                    facility_type='clinic',
+                    latitude=28.6139,
+                    longitude=77.2090,
+                    source='self_registered',
+                    status='verified' if is_verified else 'unverified',
+                    claimed_by=user,
+                    education=qualifications or 'MBBS, MD',
+                    title=f"Consultant ({specialization})" if specialization else "Consultant Practitioner",
+                    clinic_timings="09:00 AM - 01:00 PM, 04:30 PM - 08:00 PM (Mon-Sat)",
+                    bio=f"{qualifications} specialist in {specialization}. Council: {medical_council}."
+                )
+            except Exception:
+                pass
             
         return user
 
