@@ -1,10 +1,12 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import LandingPage from './components/LandingPage';
 import Login from './components/Login';
 import Register from './components/Register';
 import RoleGuard from './components/RoleGuard';
 import ClientDashboard from './components/ClientDashboard';
 import DoctorDashboard from './components/DoctorDashboard';
 import AdminDashboard from './components/AdminDashboard';
+import SupportDashboard from './components/SupportDashboard';
 import { useEffect, useState } from 'react';
 import { api, decodeJWT, STORAGE_KEYS } from './services/api';
 
@@ -21,6 +23,7 @@ function HomeRedirect() {
           if (decoded) {
             if (decoded.role === 'admin') setTarget('/admin');
             else if (decoded.role === 'doctor') setTarget('/doctor');
+            else if (decoded.role === 'support') setTarget('/support');
             else setTarget('/client');
           }
         }
@@ -82,8 +85,18 @@ export default function App() {
           }
         />
 
+        {/* Support protected portal */}
+        <Route
+          path="/support"
+          element={
+            <RoleGuard allowedRoles={['support']}>
+              <SupportDashboard />
+            </RoleGuard>
+          }
+        />
+
         {/* Root Fallback */}
-        <Route path="/" element={<HomeRedirect />} />
+        <Route path="/" element={<LandingPage />} />
         <Route path="*" element={<HomeRedirect />} />
       </Routes>
     </BrowserRouter>

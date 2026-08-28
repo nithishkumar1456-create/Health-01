@@ -1,31 +1,20 @@
-# HEALTH-02 — Doctor Discovery Portal Frontend
+<div align="center">
+<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
+</div>
 
-This is the React + Vite frontend application for **HEALTH-02**, a role-based healthcare article portal and clinic listing discovery platform.
+# Run and deploy your Med Q app
 
-## Features
-- **Client Dashboard**: Browse nearby clinics, review local directories, and read medical articles.
-- **Doctor Dashboard**: Manage medical practices and draft health/medical publications.
-- **Admin Dashboard**: Manage user validation queues, verify doctor credentials, and moderate articles.
+This contains everything you need to run your app locally.
 
-## Local Development Setup
+View your app in AI Studio: https://ai.studio/apps/877d1ec6-f496-4912-8872-1ae43a6f27ee
 
-### 1. Prerequisites
-- [Node.js](https://nodejs.org/) installed (v18+ recommended)
+## Run Locally
 
-### 2. Installation
-Install the necessary NPM modules:
-```bash
-npm install
-```
+**Prerequisites:**  Node.js
 
-### 3. Environment Configuration
-Create a `.env` file in the frontend root and set the API base URL to target the Django server:
-```env
-VITE_API_BASE_URL=http://localhost:8000
-```
 
-### 4. Run Development Server
-```bash
-npm run dev
-```
-The website will start running on [http://localhost:3000/](http://localhost:3000/).
+1. Install dependencies:
+   `npm install`
+2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+3. Run the app:
+   `npm run dev`

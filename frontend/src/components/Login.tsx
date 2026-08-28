@@ -1,6 +1,7 @@
 import { useState, FormEvent } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { api, decodeJWT } from '../services/api';
+import LogoIcon from './LogoIcon';
 import { Activity, Mail, Lock, ShieldAlert, ArrowRight } from 'lucide-react';
 export default function Login() {
   const [username, setUsername] = useState('');
@@ -28,6 +29,8 @@ export default function Login() {
           navigate('/admin');
         } else if (decoded.role === 'doctor') {
           navigate('/doctor');
+        } else if (decoded.role === 'support') {
+          navigate('/support');
         } else {
           navigate('/client');
         }
@@ -41,9 +44,9 @@ export default function Login() {
     }
   };
 
-  const handleQuickFill = (user: string, pass: string) => {
-    setUsername(user);
-    setPassword(pass);
+  const handleQuickFill = (u: string, p: string) => {
+    setUsername(u);
+    setPassword(p);
     setError(null);
   };
 
@@ -55,11 +58,11 @@ export default function Login() {
           
           {/* Brand Header */}
           <div className="text-center">
-            <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-brand-light-blue text-brand-primary mb-3">
-              <Activity className="w-7 h-7 stroke-[2.5]" />
+            <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-brand-primary text-white mb-3 shadow-md shadow-brand-primary/10 transition-transform hover:scale-105 hover:rotate-12 duration-500 cursor-pointer" onClick={() => navigate('/')}>
+              <LogoIcon className="w-9 h-9" />
             </div>
             <h1 className="font-sans text-2xl font-extrabold text-brand-dark tracking-tight">
-              HEALTH-02 Portal
+              MediQ Clinical Hub
             </h1>
             <p className="font-sans text-sm text-brand-secondary mt-1">
               Verify your credentials to manage clinical and directory logs.
@@ -128,29 +131,38 @@ export default function Login() {
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
-                onClick={() => handleQuickFill('client_1', 'clientpass')}
+                onClick={() => handleQuickFill('client_user', 'client123')}
                 className="bg-brand-bg hover:bg-brand-light-blue/50 text-brand-secondary text-xs font-semibold py-2 px-3 rounded-lg text-left truncate cursor-pointer transition-colors"
               >
                 🙋‍♂️ Client Portal
               </button>
               <button
                 type="button"
-                onClick={() => handleQuickFill('dr_verified', 'docpass')}
+                onClick={() => handleQuickFill('support_team', 'support123')}
                 className="bg-brand-bg hover:bg-brand-light-blue/50 text-brand-secondary text-xs font-semibold py-2 px-3 rounded-lg text-left truncate cursor-pointer transition-colors"
               >
-                🩺 Verified Doctor
+                🛠️ Support Team
               </button>
               <button
                 type="button"
-                onClick={() => handleQuickFill('dr_unverified', 'docpass')}
-                className="bg-brand-bg hover:bg-brand-light-blue/50 text-brand-secondary text-xs font-semibold py-2 px-3 rounded-lg text-left truncate cursor-pointer transition-colors"
+                onClick={() => handleQuickFill('anand_verma', 'doctor123')}
+                className="bg-emerald-50 hover:bg-emerald-100/80 text-emerald-800 border border-emerald-200/70 text-xs font-bold py-2.5 px-3 rounded-lg text-left cursor-pointer transition-colors flex items-center justify-between"
               >
-                ⚠️ Pending Doctor
+                <span>🩺 Doctor (Verified)</span>
+                <span className="text-[10px] bg-emerald-600 text-white px-1.5 py-0.2 rounded-full font-black">✓</span>
               </button>
               <button
                 type="button"
-                onClick={() => handleQuickFill('admin', 'adminpass')}
-                className="bg-brand-bg hover:bg-brand-light-blue/50 text-brand-secondary text-xs font-semibold py-2 px-3 rounded-lg text-left truncate cursor-pointer transition-colors"
+                onClick={() => handleQuickFill('doctor_unverified', 'doctor123')}
+                className="bg-amber-50 hover:bg-amber-100/80 text-amber-800 border border-amber-200/70 text-xs font-bold py-2.5 px-3 rounded-lg text-left cursor-pointer transition-colors flex items-center justify-between"
+              >
+                <span>🩺 Doctor (Unverified)</span>
+                <span className="text-[10px] bg-amber-500 text-white px-1.5 py-0.2 rounded-full font-black">⏳</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleQuickFill('admin', 'admin123')}
+                className="bg-brand-bg hover:bg-brand-light-blue/50 text-brand-secondary text-xs font-semibold py-2 px-3 rounded-lg text-left truncate cursor-pointer transition-colors col-span-2"
               >
                 🛡️ System Admin
               </button>

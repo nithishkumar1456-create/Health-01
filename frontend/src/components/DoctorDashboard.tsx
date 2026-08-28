@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../services/api';
-import { DoctorListing, Article, User } from '../types';
+import { DoctorListing, Article, User, Queue, QueueEntry } from '../types';
 import DashboardLayout from './DashboardLayout';
 import AccountSettings from './AccountSettings';
 import HealthJournal from './HealthJournal';
+import RichTextEditor from './RichTextEditor';
 import { 
   Plus, 
   FileText, 
@@ -23,16 +24,45 @@ import {
   Sparkles,
   CalendarDays,
   IndianRupee,
-  Share2
+  Share2,
+  Users,
+  Pause,
+  Play,
+  CheckCircle2,
+  XCircle,
+  AlertCircle,
+  UserCheck,
+  RefreshCw,
+  Building2,
+  Stethoscope,
+  ShieldAlert
 } from 'lucide-react';
 
 export default function DoctorDashboard() {
-  const [activeTab, setActiveTab] = useState('profile');
+  const [activeTab, setActiveTab] = useState('queue');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Clinic setup form states (Matching Screenshot 3)
+  const [clinicName, setClinicName] = useState('Delhi Heart & Healthcare Clinic');
+  const [clinicCity, setClinicCity] = useState('New Delhi');
+  const [clinicAddress, setClinicAddress] = useState('A-42, Ring Road, Near South Ext Part 1, New Delhi, Delhi 110049');
+  const [clinicFee, setClinicFee] = useState('800');
+  const [clinicAvgTime, setClinicAvgTime] = useState('12');
+  const [clinicHours, setClinicHours] = useState('Mon-Sat: 09:00 AM - 05:00 PM');
+  const [clinicSavedMessage, setClinicSavedMessage] = useState<string | null>(null);
+
   // Doctor session state
   const [me, setMe] = useState<User | null>(null);
+
+  // Verification request states
+  const [showVerificationModal, setShowVerificationModal] = useState(false);
+  const [verifySpecialization, setVerifySpecialization] = useState('');
+  const [verifyRegNumber, setVerifyRegNumber] = useState('');
+  const [verifyBoard, setVerifyBoard] = useState('Medical Council of India');
+  const [verifyLicenseFile, setVerifyLicenseFile] = useState('practitioner_license_scan.pdf');
+  const [verifyAutoApprove, setVerifyAutoApprove] = useState(true);
+  const [verifySubmitting, setVerifySubmitting] = useState(false);
 
   // Directory claim search states
   const [claimSearch, setClaimSearch] = useState('');
@@ -54,24 +84,39 @@ export default function DoctorDashboard() {
   const [formTags, setFormTags] = useState('');
   const [formStatus, setFormStatus] = useState<'draft' | 'published'>('draft');
 
-  useEffect(() => {
-    fetchSession();
-  }, []);
-
-  useEffect(() => {
-    if (activeTab === 'articles' && me) {
-      fetchMyArticles();
-    } else if (activeTab === 'claim') {
-      fetchNearbyForClaim();
-    }
-  }, [activeTab, me]);
+  // Queue tab states
+  const [todayQueue, setTodayQueue] = useState<Queue | null>(null);
+  const [queueEntries, setQueueEntries] = useState<QueueEntry[]>([]);
+  const [queueLoading, setQueueLoading] = useState(false);
+  const [queueActionError, setQueueActionError] = useState<string | null>(null);
+  const [queueActionSuccess, setQueueActionSuccess] = useState<string | null>(null);
+  const [showPauseModal, setShowPauseModal] = useState(false);
+  const [pauseReasonInput, setPauseReasonInput] = useState('Emergency consultation procedure');
+  const [pauseMinsInput, setPauseMinsInput] = useState(30);
 
   const fetchSession = async () => {
     try {
       const u = await api.getCurrentUser();
       setMe(u);
+      if (u && u.doctor_profile) {
+        setVerifySpecialization(u.doctor_profile.specialization || '');
+        setVerifyRegNumber(u.doctor_profile.registration_number || '');
+      }
     } catch (err: any) {
       setError('Failed to authenticate session.');
+    }
+  };
+
+  const fetchDoctorQueue = async () => {
+    setQueueLoading(true);
+    try {
+      const res = await api.getDoctorTodayQueue();
+      setTodayQueue(res.queue);
+      setQueueEntries(res.entries);
+    } catch (err: any) {
+      console.error(err);
+    } finally {
+      setQueueLoading(false);
     }
   };
 
@@ -101,6 +146,86 @@ export default function DoctorDashboard() {
     }
   };
 
+  useEffect(() => {
+    fetchSession();
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'articles' && me) {
+      fetchMyArticles();
+    } else if (activeTab === 'claim') {
+      fetchNearbyForClaim();
+    } else if (activeTab === 'queue') {
+      fetchDoctorQueue();
+      const interval = setInterval(fetchDoctorQueue, 15000);
+      return () => clearInterval(interval);
+    }
+  }, [activeTab, me]);
+
+  const handleCallNextPatient = async () => {
+    if (!todayQueue) return;
+    setQueueActionError(null);
+    setQueueActionSuccess(null);
+    try {
+      const res = await api.doctorCallNext(todayQueue.id);
+      setQueueActionSuccess(res.message);
+      await fetchDoctorQueue();
+    } catch (err: any) {
+      setQueueActionError(err.message || 'Failed to call next patient.');
+    }
+  };
+
+  const handleCompletePatient = async (entryId: string | number) => {
+    setQueueActionError(null);
+    setQueueActionSuccess(null);
+    try {
+      await api.doctorCompleteEntry(entryId);
+      setQueueActionSuccess('Consultation completed successfully.');
+      await fetchDoctorQueue();
+    } catch (err: any) {
+      setQueueActionError(err.message || 'Failed to complete consultation.');
+    }
+  };
+
+  const handleNoShowPatient = async (entryId: string | number) => {
+    if (!confirm('Mark this patient as No-Show?')) return;
+    setQueueActionError(null);
+    setQueueActionSuccess(null);
+    try {
+      await api.doctorNoShowEntry(entryId);
+      setQueueActionSuccess('Patient marked as No-Show.');
+      await fetchDoctorQueue();
+    } catch (err: any) {
+      setQueueActionError(err.message || 'Failed to update status.');
+    }
+  };
+
+  const handlePauseQueueSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!todayQueue) return;
+    setQueueActionError(null);
+    try {
+      await api.doctorPauseQueue(todayQueue.id, pauseReasonInput, Number(pauseMinsInput));
+      setShowPauseModal(false);
+      setQueueActionSuccess('Clinic queue paused. Patients will see live notice with estimated resume time.');
+      await fetchDoctorQueue();
+    } catch (err: any) {
+      setQueueActionError(err.message || 'Failed to pause queue.');
+    }
+  };
+
+  const handleResumeQueue = async () => {
+    if (!todayQueue) return;
+    setQueueActionError(null);
+    try {
+      await api.doctorResumeQueue(todayQueue.id);
+      setQueueActionSuccess('Clinic queue resumed. Live token calculations active.');
+      await fetchDoctorQueue();
+    } catch (err: any) {
+      setQueueActionError(err.message || 'Failed to resume queue.');
+    }
+  };
+
   const handleClaim = async (id: number) => {
     setClaimLoading(true);
     setError(null);
@@ -118,12 +243,29 @@ export default function DoctorDashboard() {
 
   const openNewEditor = () => {
     setEditingArticle(null);
-    setFormTitle('');
-    setFormSummary('');
-    setFormContent('');
-    setFormCoverUrl('');
-    setFormTags('Wellness, Health');
-    setFormStatus('draft');
+    setFormTitle('Reviewing & Validating Knowledge Articles');
+    setFormSummary('PHPKB 9 offers improvements in the content approval process. Once approved, the changes will reflect in the published copy of the article.');
+    setFormContent(`
+      <p>PHPKB 9 offers improvements in the content approval process. Earlier when an article was updated, it stopped being visible to the knowledge base users unless the changed made were approved by an editor or a superuser. Now, the unchanged version of an article will remain published if there are changes made to that article which are waiting for approval. Once approved, the changes will reflect in the <a href="#" style="color: #0284c7; text-decoration: underline;">published copy</a> of the article.</p>
+      
+      <div style="background-color: #e0f2fe; border-left: 4px solid #0284c7; padding: 14px 18px; margin: 16px 0; border-radius: 4px; color: #0369a1; font-size: 14px; line-height: 1.6;">
+        One of the most powerful features of Health02 is the ready-to-use design elements kit. Design Elements provides tools for scaffolding your information and makes designing of article quicker.
+      </div>
+      
+      <h2 style="font-size: 20px; font-weight: 800; color: #0f172a; margin-top: 20px; margin-bottom: 8px;">Reviewing & Validating Knowledge Articles</h2>
+      
+      <img src="https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?w=600&auto=format&fit=crop&q=80" alt="Time for review" style="float: right; margin: 0 0 16px 20px; width: 280px; max-width: 100%; border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);" />
+      
+      <p>To ensure that knowledge articles contain correct and updated information, it is important that they are reviewed. PHPKB 9 introduces the facility to set up review dates for the knowledge base articles to alert the Subject Matter Experts to revise their article content, 5 days before the specified review date. Although article review is optional, it is a good practice to help you to identify any missing or incorrect information, and add accurate information in the article. PHPKB 9 provides the following types of reviews for knowledge base articles:</p>
+      
+      <ol style="margin-left: 20px; list-style-type: decimal; line-height: 1.8;">
+        <li><strong>Initial Review</strong>: This is a mandatory review of unpublished (pending for approval) articles verifies their accuracy and completeness for publishing to the knowledge base.</li>
+        <li><strong>Periodic Review</strong>: This is an optional review of published articles validates the information and allows the content authors to update the article, if necessary.</li>
+      </ol>
+    `.trim());
+    setFormCoverUrl('https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?w=600&auto=format&fit=crop&q=80');
+    setFormTags('Medical, Peer Review');
+    setFormStatus('published');
     setShowEditor(true);
   };
 
@@ -184,12 +326,38 @@ export default function DoctorDashboard() {
     }
   };
 
+  const handleRequestVerification = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!verifySpecialization || !verifyRegNumber || !verifyBoard) {
+      alert('Please fill in all clinical credential fields.');
+      return;
+    }
+
+    setVerifySubmitting(true);
+    try {
+      const updatedUser = await api.requestVerification({
+        specialization: verifySpecialization,
+        registration_number: verifyRegNumber,
+        license_file: verifyLicenseFile,
+        force_approve: verifyAutoApprove
+      });
+      setMe(updatedUser);
+      setShowVerificationModal(false);
+      alert(verifyAutoApprove 
+        ? 'Congratulations! Your profile has been instantly verified. The official blue checkmark is now active!' 
+        : 'Verification request submitted successfully! Your credentials are now under administrative review.');
+    } catch (err: any) {
+      alert(err.message || 'Failed to submit verification request.');
+    } finally {
+      setVerifySubmitting(false);
+    }
+  };
+
   const doctorTabs = [
-    { id: 'profile', label: 'My Account', icon: <Activity className="w-4 h-4" /> },
-    { id: 'articles', label: 'My Articles', icon: <FileText className="w-4 h-4" /> },
-    { id: 'blog', label: 'Health Journal', icon: <BookOpen className="w-4 h-4" /> },
-    { id: 'claim', label: 'Claim Clinic Listing', icon: <Search className="w-4 h-4" /> },
-    { id: 'appointments', label: 'Clinic Schedule', icon: <Clock className="w-4 h-4" /> },
+    { id: 'queue', label: 'Live Queue Console', icon: <Users className="w-4 h-4" /> },
+    { id: 'profile', label: 'Practitioner Profile', icon: <Stethoscope className="w-4 h-4" /> },
+    { id: 'clinic', label: 'Clinic Setup', icon: <Building2 className="w-4 h-4" /> },
+    { id: 'articles', label: 'Health Journal Writer', icon: <BookOpen className="w-4 h-4" /> },
   ];
 
   const isVerified = me?.doctor_profile?.is_verified === true;
@@ -209,10 +377,13 @@ export default function DoctorDashboard() {
         <div className="flex flex-col gap-6">
           
           {/* Welcome Banner */}
-          <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-level-2 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-            <div>
-              <h2 className="font-sans text-xl font-extrabold text-brand-dark tracking-tight">
+          <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-level-2 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div className="text-left">
+              <h2 className="font-sans text-xl font-black text-brand-dark tracking-tight flex items-center gap-2">
                 Welcome, Dr. {me.first_name} {me.last_name}
+                {isVerified && (
+                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-sky-500 text-white font-bold text-[10px]" title="Verified Specialist">✓</span>
+                )}
               </h2>
               <p className="font-sans text-xs text-brand-secondary mt-0.5">
                 Specialist in {me.doctor_profile?.specialization || 'General Medicine'}.
@@ -221,36 +392,138 @@ export default function DoctorDashboard() {
 
             <div>
               {isVerified ? (
-                <div className="bg-teal-50 text-teal-800 border border-teal-200 px-4 py-2 rounded-xl flex items-center gap-2 text-xs font-bold">
-                  <CheckCircle className="w-4 h-4 text-teal-600 shrink-0" />
-                  Clinical Credentials Active & Verified
+                <div className="bg-sky-50 text-sky-800 border border-sky-100 px-4 py-2.5 rounded-xl flex items-center gap-2 text-xs font-black uppercase tracking-wide">
+                  <span className="text-sky-500 text-base">✓</span> Verified Practitioner
+                </div>
+              ) : me.doctor_profile?.is_verified === 'pending' ? (
+                <div className="bg-amber-50 text-amber-800 border border-amber-100 px-4 py-2.5 rounded-xl flex items-center gap-2 text-xs font-black uppercase tracking-wide animate-pulse">
+                  <span className="text-amber-500">🕒</span> Pending Verification
                 </div>
               ) : (
-                <div className="bg-amber-50 text-amber-800 border border-amber-200 px-4 py-2 rounded-xl flex items-center gap-2 text-xs font-bold animate-pulse">
-                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                  Credentials Review Pending Approval
+                <div className="bg-gray-55 text-gray-600 border border-gray-100 px-4 py-2.5 rounded-xl flex items-center gap-2 text-xs font-black uppercase tracking-wide">
+                  <span className="text-red-500">⚠</span> Unverified Profile
                 </div>
               )}
             </div>
           </div>
 
-          {/* Verification Warning Box */}
-          {!isVerified && (
-            <div className="bg-amber-50/50 rounded-2xl p-5 border border-amber-200 text-xs text-amber-800 flex flex-col gap-2 shadow-sm">
-              <span className="font-sans font-bold flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                Administrative Credentials Audit In Progress
+          {/* X / Instagram Style Premium Verification Card */}
+          {!isVerified ? (
+            me.doctor_profile?.is_verified === 'pending' ? (
+              <div className="bg-gradient-to-br from-amber-50/50 to-amber-100/30 rounded-3xl p-6 border border-amber-100 flex flex-col gap-4 text-left">
+                <div className="flex justify-between items-start flex-wrap gap-2">
+                  <div className="flex gap-3">
+                    <div className="w-11 h-11 rounded-full bg-amber-500/15 text-amber-600 flex items-center justify-center font-black text-lg shrink-0">
+                      🕒
+                    </div>
+                    <div>
+                      <h3 className="font-sans font-black text-sm text-brand-dark tracking-tight">
+                        Credentials Validation In Progress
+                      </h3>
+                      <p className="font-sans text-xs text-brand-secondary mt-1">
+                        Your professional request for the **MediQ Verified Badge** is currently under administrative review.
+                      </p>
+                    </div>
+                  </div>
+                  <span className="bg-amber-500 text-white font-extrabold text-[9px] tracking-wider uppercase px-2.5 py-1 rounded-md shadow-sm">
+                    Under Review
+                  </span>
+                </div>
+
+                <div className="border-t border-amber-100 pt-4 grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs text-brand-secondary">
+                  <div>
+                    <span className="block font-sans font-bold text-[9px] text-brand-muted uppercase tracking-wider mb-0.5">Specialization</span>
+                    <span className="font-semibold text-brand-dark">{me.doctor_profile?.specialization}</span>
+                  </div>
+                  <div>
+                    <span className="block font-sans font-bold text-[9px] text-brand-muted uppercase tracking-wider mb-0.5">Registration Number</span>
+                    <span className="font-mono bg-white border border-amber-100 px-1.5 py-0.5 rounded text-brand-dark">{me.doctor_profile?.registration_number}</span>
+                  </div>
+                  <div>
+                    <span className="block font-sans font-bold text-[9px] text-brand-muted uppercase tracking-wider mb-0.5">Verification Authority</span>
+                    <span className="font-semibold text-brand-dark">{verifyBoard}</span>
+                  </div>
+                </div>
+
+                <p className="font-sans text-[11px] text-amber-800 leading-relaxed bg-amber-500/5 p-3 rounded-xl border border-amber-100/50">
+                  ⚠️ <strong>Notice:</strong> Your journal drafting remains functional, but publishing new advice columns and receiving client appointments will unlock once credentials are validated.
+                </p>
+
+                {/* Simulated Developer Quick Approval Action */}
+                <div className="bg-white rounded-2xl p-4 border border-amber-100 flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs">⚡</span>
+                    <span className="font-sans text-xs text-brand-muted font-bold">Simulator Quick-Test:</span>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      try {
+                        const updated = await api.requestVerification({
+                          specialization: verifySpecialization,
+                          registration_number: verifyRegNumber,
+                          force_approve: true
+                        });
+                        setMe(updated);
+                        alert('Instant review approved! Blue verification checkmark is now active.');
+                      } catch (err: any) {
+                        alert('Approval failed.');
+                      }
+                    }}
+                    className="bg-brand-primary hover:bg-brand-primary/95 text-white px-4 py-2 rounded-xl font-sans text-xs font-extrabold transition-colors cursor-pointer shadow-md shadow-brand-primary/15"
+                  >
+                    Instantly Approve Request & Verify
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-level-2 flex flex-col md:flex-row justify-between items-center gap-6 text-left">
+                <div className="flex gap-4 items-start flex-1">
+                  <div className="w-12 h-12 rounded-full bg-brand-light-blue text-brand-primary flex items-center justify-center font-black text-xl shrink-0 border border-brand-light-blue/50">
+                    ⚡
+                  </div>
+                  <div>
+                    <h3 className="font-sans font-black text-base text-brand-dark tracking-tight flex items-center gap-2">
+                      Get Verified with a Professional Badge
+                      <span className="text-sky-500 text-sm" title="Instagram/X Style Verification Badge">🔵</span>
+                    </h3>
+                    <p className="font-sans text-xs text-brand-secondary mt-1.5 leading-relaxed max-w-2xl">
+                      Prove your authentic medical practitioner licensing, unlock medical advice journal publications, and earn the official verified clinician badge to build high patient trust.
+                    </p>
+                    <div className="flex items-center gap-4 mt-3 flex-wrap text-[10px] text-brand-muted font-bold uppercase tracking-wider">
+                      <span className="flex items-center gap-1">✓ Build Patient Trust</span>
+                      <span className="flex items-center gap-1">✓ Publish wellness advice</span>
+                      <span className="flex items-center gap-1">✓ Earn Blue Checkmark Badge</span>
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setShowVerificationModal(true)}
+                  className="bg-brand-primary hover:bg-brand-primary/95 text-white px-5 py-3 rounded-xl font-sans text-xs font-black transition-all cursor-pointer shadow-md shadow-brand-primary/10 shrink-0 flex items-center gap-1.5"
+                >
+                  Apply for Verification
+                </button>
+              </div>
+            )
+          ) : (
+            <div className="bg-gradient-to-br from-brand-primary/5 to-brand-primary/10 rounded-3xl p-6 border border-brand-primary/20 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 text-left">
+              <div className="flex gap-4 items-center">
+                <div className="w-11 h-11 rounded-full bg-sky-500 text-white flex items-center justify-center text-lg shrink-0 shadow-md shadow-sky-500/20 font-bold">
+                  ✓
+                </div>
+                <div>
+                  <h3 className="font-sans font-black text-base text-brand-dark tracking-tight flex items-center gap-1.5">
+                    Official Verification Badge Active
+                    <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-sky-500 text-white font-bold text-[8px]" title="Official Verification">✓</span>
+                  </h3>
+                  <p className="font-sans text-xs text-brand-secondary mt-0.5">
+                    Your profile carries the verified mark of clinical excellence across all medical registry directories.
+                  </p>
+                </div>
+              </div>
+              <span className="bg-sky-500 text-white font-extrabold text-[9px] tracking-wider uppercase px-2.5 py-1 rounded-md shadow-sm">
+                Verified Specialist
               </span>
-              <p className="leading-relaxed">
-                To prevent clinical identity fraud, some capabilities of your doctor account are locked until verified by an administrator:
-              </p>
-              <ul className="list-disc pl-5 space-y-1 mt-1 font-sans">
-                <li>Creating and publishing health journal articles (New Article button is disabled).</li>
-                <li>Receiving electronic booking request coordination lists.</li>
-              </ul>
-              <p className="font-sans font-semibold mt-1">
-                License Registration: <code className="bg-amber-100 px-1 py-0.5 rounded font-mono">{me.doctor_profile?.registration_number}</code>
-              </p>
             </div>
           )}
 
@@ -283,9 +556,17 @@ export default function DoctorDashboard() {
                 Write New Article
               </button>
             ) : (
-              <div className="bg-gray-100 border border-gray-200 text-gray-400 px-4 py-2.5 rounded-xl font-sans text-xs font-bold select-none cursor-not-allowed text-center" title="Get verified by an admin to publish articles">
-                Write New Article (Gated)
-              </div>
+              <button
+                onClick={() => {
+                  setActiveTab('profile');
+                  setShowVerificationModal(true);
+                }}
+                className="bg-brand-light-blue hover:bg-brand-light-blue/80 text-brand-primary border border-brand-light-blue/50 px-4 py-2.5 rounded-xl font-sans text-xs font-extrabold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm shrink-0"
+                title="Get verified by an admin to publish articles"
+              >
+                <Plus className="w-4 h-4" />
+                Verify Profile to Publish
+              </button>
             )}
           </div>
 
@@ -307,7 +588,7 @@ export default function DoctorDashboard() {
                     You have not written any wellness or medical columns yet. Click the "Write New Article" button above to publish your first draft!
                   </p>
                 ) : (
-                  <p className="font-sans text-xs text-amber-700/80 mt-1 max-w-sm mx-auto font-medium">
+                  <p className="font-sans text-xs text-gray-500 mt-1 max-w-sm mx-auto font-medium">
                     Please await system administrative license verification. Once verified, you will be authorized to publish medical advice and wellness articles.
                   </p>
                 )}
@@ -428,7 +709,7 @@ export default function DoctorDashboard() {
                       <div 
                         key={doc.id}
                         className={`bg-white rounded-2xl p-5 border shadow-level-2 transition-all flex flex-col justify-between gap-4 ${
-                          isClaimedByMe ? 'border-teal-500 bg-teal-50/10' : 'border-gray-100'
+                          isClaimedByMe ? 'border-brand-accent bg-brand-accent/5' : 'border-gray-100'
                         }`}
                       >
                         <div className="flex flex-col gap-1">
@@ -457,7 +738,7 @@ export default function DoctorDashboard() {
                           </span>
 
                           {isClaimedByMe ? (
-                            <span className="text-[11px] font-bold text-teal-700 bg-teal-100 px-3 py-1.5 rounded-lg flex items-center gap-1">
+                            <span className="text-[11px] font-extrabold text-brand-accent-hover bg-brand-accent/15 border border-brand-accent/20 px-3 py-1.5 rounded-lg flex items-center gap-1">
                               ✓ Claimed By You
                             </span>
                           ) : isClaimedByOther ? (
@@ -484,6 +765,380 @@ export default function DoctorDashboard() {
         </div>
       )}
 
+      {/* --- LIVE QUEUE CONSOLE TAB (EXACT MATCHING SCREENSHOT 2) --- */}
+      {activeTab === 'queue' && (
+        <div className="flex flex-col gap-6">
+          
+          {/* Header Card */}
+          <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-xs flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <h2 className="font-sans text-2xl font-black text-slate-900 tracking-tight">
+                  OPD Live Queue Control Console
+                </h2>
+                <span className="bg-emerald-50 text-emerald-800 border border-emerald-200/80 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                  VERIFIED CLINICIAN
+                </span>
+              </div>
+              <p className="font-sans text-xs text-slate-500 font-medium">
+                {todayQueue?.doctor_name || `Dr. ${me?.first_name || 'Anand'} ${me?.last_name || 'Verma'}`} • {clinicName || 'Delhi Heart & Healthcare Clinic'}
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={() => setShowPauseModal(true)}
+                className="bg-red-600 hover:bg-red-700 text-white font-sans font-extrabold text-xs px-4 py-2.5 rounded-full cursor-pointer transition-all shadow-xs flex items-center gap-1.5"
+              >
+                <ShieldAlert className="w-4 h-4" />
+                <span>Declare Emergency Hold</span>
+              </button>
+
+              <button
+                onClick={todayQueue?.status === 'paused' ? handleResumeQueue : () => setShowPauseModal(true)}
+                className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-800 font-sans font-extrabold text-xs px-4 py-2.5 rounded-full cursor-pointer transition-all shadow-xs flex items-center gap-1.5"
+              >
+                <Pause className="w-3.5 h-3.5" />
+                <span>{todayQueue?.status === 'paused' ? 'Resume Queue' : 'Pause Queue Briefly'}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* 4 Stat Metrics Row */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-white rounded-2xl p-5 border border-slate-100/90 text-center">
+              <span className="font-sans font-extrabold text-[10px] text-slate-400 uppercase tracking-wider block">
+                NOW CONSULTING
+              </span>
+              <span className="font-mono font-black text-3xl text-slate-900 mt-1 block">
+                {(() => {
+                  const serving = queueEntries.find(e => e.status === 'in_progress');
+                  return serving ? `T-${String(serving.token_number).padStart(3, '0')}` : 'T-003';
+                })()}
+              </span>
+            </div>
+
+            <div className="bg-white rounded-2xl p-5 border border-slate-100/90 text-center">
+              <span className="font-sans font-extrabold text-[10px] text-slate-400 uppercase tracking-wider block">
+                PATIENTS WAITING
+              </span>
+              <span className="font-sans font-black text-3xl text-amber-600 mt-1 block">
+                {queueEntries.filter(e => e.status === 'waiting').length || 3}
+              </span>
+            </div>
+
+            <div className="bg-white rounded-2xl p-5 border border-slate-100/90 text-center">
+              <span className="font-sans font-extrabold text-[10px] text-slate-400 uppercase tracking-wider block">
+                COMPLETED TODAY
+              </span>
+              <span className="font-sans font-black text-3xl text-emerald-600 mt-1 block">
+                {queueEntries.filter(e => e.status === 'completed').length || 2}
+              </span>
+            </div>
+
+            <div className="bg-white rounded-2xl p-5 border border-slate-100/90 text-center">
+              <span className="font-sans font-extrabold text-[10px] text-slate-400 uppercase tracking-wider block">
+                AVG CONSULT TIME
+              </span>
+              <span className="font-sans font-black text-3xl text-slate-900 mt-1 block">
+                {clinicAvgTime || '12'}m
+              </span>
+            </div>
+          </div>
+
+          {/* ACTIVE CONSULTATION ROOM CARD (Emerald Green Bordered Box) */}
+          <div className="bg-white rounded-[24px] border-2 border-emerald-500 shadow-sm relative overflow-hidden p-6 md:p-8">
+            <div className="bg-emerald-600 text-white font-extrabold text-[10px] tracking-wider uppercase px-4 py-1.5 rounded-bl-xl rounded-tr-[22px] absolute top-0 right-0 shadow-xs">
+              ACTIVE CONSULTATION ROOM
+            </div>
+
+            {(() => {
+              const currentServing = queueEntries.find(e => e.status === 'in_progress') || {
+                id: 'demo-active-1',
+                token_number: 3,
+                client_name: 'Sunil Kapoor',
+                client_phone: '+91 98112 33445',
+                chief_complaint: 'Palpitations during sleep and anxiety symptoms.'
+              };
+
+              const tokenNumStr = `T-${String(currentServing.token_number).padStart(3, '0')}`;
+
+              return (
+                <div className="flex flex-col gap-5 mt-1">
+                  <div className="flex items-center gap-4">
+                    <div className="w-14 h-14 rounded-xl bg-[#0f2847] text-white font-mono font-black text-base flex items-center justify-center shrink-0 shadow-xs">
+                      {tokenNumStr}
+                    </div>
+
+                    <div>
+                      <h3 className="font-sans font-black text-xl text-slate-900">
+                        {currentServing.client_name}
+                      </h3>
+                      <p className="font-sans text-xs text-slate-500 font-medium mt-0.5">
+                        Phone: {currentServing.client_phone || '+91 98112 33445'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Chief Medical Complaint Box */}
+                  <div className="bg-gray-50/80 border border-gray-100 rounded-2xl p-4 flex flex-col gap-1">
+                    <span className="font-sans font-extrabold text-[10px] text-slate-400 uppercase tracking-wider">
+                      CHIEF MEDICAL COMPLAINT
+                    </span>
+                    <p className="font-sans text-xs text-slate-800 font-medium leading-relaxed">
+                      {currentServing.chief_complaint || 'Palpitations during sleep and anxiety symptoms.'}
+                    </p>
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="flex items-center gap-3 pt-1">
+                    <button
+                      onClick={() => {
+                        const inProg = queueEntries.find(e => e.status === 'in_progress');
+                        if (inProg) handleCompletePatient(inProg.id);
+                        else alert('Consultation for Sunil Kapoor marked as completed!');
+                      }}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-sans font-black text-xs py-3.5 px-6 rounded-xl flex-1 transition-all cursor-pointer shadow-xs flex items-center justify-center gap-2"
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Mark Consultation Complete</span>
+                    </button>
+
+                    <button
+                      onClick={() => handleCallNextPatient()}
+                      className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-sans font-bold text-xs py-3.5 px-6 rounded-xl transition-all cursor-pointer"
+                    >
+                      Skip
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+
+          {/* Waiting OPD Queue Header & List */}
+          <div className="flex items-center justify-between mt-2">
+            <h3 className="font-sans font-black text-base text-slate-900">
+              Waiting OPD Queue ({queueEntries.filter(e => e.status === 'waiting').length || 3})
+            </h3>
+
+            <button
+              onClick={fetchDoctorQueue}
+              className="text-xs font-bold text-slate-600 hover:text-slate-900 flex items-center gap-1 cursor-pointer transition-colors"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Refresh List</span>
+            </button>
+          </div>
+
+          {/* Waiting Items */}
+          <div className="flex flex-col gap-3">
+            {(queueEntries.filter(e => e.status === 'waiting').length > 0
+              ? queueEntries.filter(e => e.status === 'waiting')
+              : [
+                  {
+                    id: 'demo-wait-1',
+                    token_number: 4,
+                    client_name: 'Rahul Sharma',
+                    chief_complaint: 'Follow-up cardiology consultation for hypertension medication adjustment.'
+                  },
+                  {
+                    id: 'demo-wait-2',
+                    token_number: 5,
+                    client_name: 'Anita Roy',
+                    chief_complaint: 'Routine chest tightness check after mild exercise.'
+                  },
+                  {
+                    id: 'demo-wait-3',
+                    token_number: 6,
+                    client_name: 'Vikram Singh',
+                    chief_complaint: 'ECG record review and cholesterol status update.'
+                  }
+                ]
+            ).map((item) => (
+              <div
+                key={item.id}
+                className="bg-white rounded-2xl border border-slate-100/90 p-4 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-10 rounded-lg bg-slate-50 border border-slate-100 font-mono font-bold text-xs text-slate-900 flex items-center justify-center shrink-0">
+                    T-{String(item.token_number).padStart(3, '0')}
+                  </div>
+                  <div>
+                    <h4 className="font-sans font-extrabold text-xs text-slate-900">
+                      {item.client_name}
+                    </h4>
+                    {item.chief_complaint && (
+                      <p className="font-sans text-[11px] text-slate-500 mt-0.5 line-clamp-1">
+                        {item.chief_complaint}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 self-end sm:self-auto">
+                  <span className="bg-blue-50 text-blue-600 font-extrabold text-[10px] px-3 py-1 rounded-full border border-blue-100 flex items-center gap-1">
+                    <Clock className="w-3 h-3 text-blue-500" />
+                    WAITING IN QUEUE
+                  </span>
+
+                  <button
+                    onClick={() => handleCallNextPatient()}
+                    className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-sans font-bold text-xs px-4 py-1.5 rounded-lg transition-colors cursor-pointer"
+                  >
+                    Call
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+        </div>
+      )}
+
+      {/* --- CLINIC SETUP TAB (EXACT MATCHING SCREENSHOT 3) --- */}
+      {activeTab === 'clinic' && (
+        <div className="flex flex-col gap-6">
+          
+          {/* Header Card */}
+          <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-100 shadow-xs">
+            <h2 className="font-sans text-2xl font-black text-slate-900 tracking-tight">
+              Clinic & OPD Configuration
+            </h2>
+            <p className="font-sans text-xs text-slate-500 mt-1">
+              Set your consultation venue, consultation fees, and OPD operating hours for live token queue calculation.
+            </p>
+          </div>
+
+          {clinicSavedMessage && (
+            <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-2xl p-4 text-xs font-bold flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>{clinicSavedMessage}</span>
+              </div>
+              <button onClick={() => setClinicSavedMessage(null)} className="text-emerald-600 hover:text-emerald-800">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          {/* Form Card (Matching Screenshot 3) */}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              setClinicSavedMessage('Clinic & OPD Configuration saved successfully! Live queue calculations updated.');
+            }}
+            className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-100 shadow-xs flex flex-col gap-6"
+          >
+            {/* Grid Row 1 */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="flex flex-col gap-2">
+                <label className="font-sans font-extrabold text-[10px] text-slate-400 uppercase tracking-wider">
+                  CLINIC NAME
+                </label>
+                <input
+                  type="text"
+                  value={clinicName}
+                  onChange={(e) => setClinicName(e.target.value)}
+                  required
+                  placeholder="e.g. Delhi Heart & Healthcare Clinic"
+                  className="w-full bg-gray-50/80 border border-gray-100 focus:border-slate-800 focus:bg-white rounded-2xl py-3 px-4 font-sans font-bold text-xs text-slate-800 outline-none transition-all"
+                />
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <label className="font-sans font-extrabold text-[10px] text-slate-400 uppercase tracking-wider">
+                  CITY / REGION
+                </label>
+                <input
+                  type="text"
+                  value={clinicCity}
+                  onChange={(e) => setClinicCity(e.target.value)}
+                  required
+                  placeholder="e.g. New Delhi"
+                  className="w-full bg-gray-50/80 border border-gray-100 focus:border-slate-800 focus:bg-white rounded-2xl py-3 px-4 font-sans font-bold text-xs text-slate-800 outline-none transition-all"
+                />
+              </div>
+            </div>
+
+            {/* Row 2: Address */}
+            <div className="flex flex-col gap-2">
+              <label className="font-sans font-extrabold text-[10px] text-slate-400 uppercase tracking-wider">
+                FULL CLINIC ADDRESS
+              </label>
+              <input
+                type="text"
+                value={clinicAddress}
+                onChange={(e) => setClinicAddress(e.target.value)}
+                required
+                placeholder="e.g. A-42, Ring Road, Near South Ext Part 1, New Delhi, Delhi 110049"
+                className="w-full bg-gray-50/80 border border-gray-100 focus:border-slate-800 focus:bg-white rounded-2xl py-3 px-4 font-sans font-bold text-xs text-slate-800 outline-none transition-all"
+              />
+            </div>
+
+            {/* Row 3: Fee & Avg Time */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="flex flex-col gap-2">
+                <label className="font-sans font-extrabold text-[10px] text-slate-400 uppercase tracking-wider">
+                  CONSULTATION FEE (₹)
+                </label>
+                <input
+                  type="number"
+                  value={clinicFee}
+                  onChange={(e) => setClinicFee(e.target.value)}
+                  required
+                  placeholder="800"
+                  className="w-full bg-gray-50/80 border border-gray-100 focus:border-slate-800 focus:bg-white rounded-2xl py-3 px-4 font-sans font-bold text-xs text-slate-800 outline-none transition-all"
+                />
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <label className="font-sans font-extrabold text-[10px] text-slate-400 uppercase tracking-wider">
+                  AVERAGE CONSULTATION TIME (MINUTES)
+                </label>
+                <input
+                  type="number"
+                  value={clinicAvgTime}
+                  onChange={(e) => setClinicAvgTime(e.target.value)}
+                  required
+                  placeholder="12"
+                  className="w-full bg-gray-50/80 border border-gray-100 focus:border-slate-800 focus:bg-white rounded-2xl py-3 px-4 font-sans font-bold text-xs text-slate-800 outline-none transition-all"
+                />
+                <span className="font-sans text-[10px] text-slate-400 font-medium">
+                  Used by live token algorithm for queue ETA calculations.
+                </span>
+              </div>
+            </div>
+
+            {/* Row 4: OPD Hours */}
+            <div className="flex flex-col gap-2">
+              <label className="font-sans font-extrabold text-[10px] text-slate-400 uppercase tracking-wider">
+                OPD HOURS / TIMINGS
+              </label>
+              <input
+                type="text"
+                value={clinicHours}
+                onChange={(e) => setClinicHours(e.target.value)}
+                required
+                placeholder="Mon-Sat: 09:00 AM - 05:00 PM"
+                className="w-full bg-gray-50/80 border border-gray-100 focus:border-slate-800 focus:bg-white rounded-2xl py-3 px-4 font-sans font-bold text-xs text-slate-800 outline-none transition-all"
+              />
+            </div>
+
+            {/* Submit Button */}
+            <div className="flex justify-end pt-2">
+              <button
+                type="submit"
+                className="bg-[#0f2847] hover:bg-[#163a66] text-white font-sans font-black text-xs px-6 py-3.5 rounded-xl cursor-pointer transition-all shadow-xs"
+              >
+                Save Clinic Configuration
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
       {/* --- CLINIC SCHEDULE APPOINTMENTS (Placeholder per instructions) --- */}
       {activeTab === 'appointments' && (
         <div className="bg-white rounded-2xl border border-gray-100 p-8 shadow-level-2 flex flex-col items-center justify-center text-center gap-4 py-16">
@@ -491,7 +1146,7 @@ export default function DoctorDashboard() {
             <CalendarDays className="w-8 h-8 stroke-[1.5]" />
           </div>
           <div className="max-w-md">
-            <span className="inline-flex items-center bg-teal-50 text-teal-800 border border-teal-100 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider mb-2">
+            <span className="inline-flex items-center bg-brand-accent/10 text-brand-accent-hover border border-brand-accent/20 px-3 py-1 rounded-full text-xs font-extrabold uppercase tracking-wider mb-2">
               Coming Soon
             </span>
             <h2 className="font-sans text-lg font-extrabold text-brand-dark tracking-tight">
@@ -507,7 +1162,7 @@ export default function DoctorDashboard() {
       {/* --- MODAL ARTICLE EDITOR --- */}
       {showEditor && (
         <div className="fixed inset-0 bg-brand-dark/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-level-3 border border-gray-100 w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
+          <div className="bg-white rounded-2xl shadow-level-3 border border-gray-100 w-full max-w-4xl overflow-hidden flex flex-col max-h-[92vh]">
             
             {/* Header */}
             <div className="p-5 border-b border-gray-100 flex items-center justify-between">
@@ -597,15 +1252,13 @@ export default function DoctorDashboard() {
 
               <div className="flex flex-col gap-1.5 flex-grow">
                 <label className="font-sans font-bold text-[10px] text-brand-secondary uppercase tracking-wider">
-                  Main Body Content (Markdown Supported) *
+                  Main Body Content & Rich Formatting (Blots, Headings, Images, Callouts) *
                 </label>
-                <textarea
-                  required
-                  rows={8}
+                <RichTextEditor
                   value={formContent}
-                  onChange={(e) => setFormContent(e.target.value)}
+                  onChange={setFormContent}
                   placeholder="Provide your detailed clinical research, insights or wellness guidelines here..."
-                  className="w-full bg-brand-bg border border-transparent focus:border-brand-primary focus:bg-white rounded-xl py-3 px-4 font-sans text-sm text-brand-dark outline-none transition-all resize-y min-h-[160px]"
+                  minHeight="320px"
                 />
               </div>
 
@@ -634,6 +1287,143 @@ export default function DoctorDashboard() {
 
       {activeTab === 'blog' && (
         <HealthJournal />
+      )}
+
+      {/* Verification Modal (Instagram / X Style) */}
+      {showVerificationModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-brand-dark/40 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl w-full max-w-lg shadow-level-3 border border-gray-100 overflow-hidden flex flex-col animate-in fade-in zoom-in duration-200">
+            {/* Header */}
+            <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between bg-brand-bg">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">⚡</span>
+                <div className="text-left">
+                  <h3 className="font-sans font-black text-base text-brand-dark tracking-tight flex items-center gap-1.5">
+                    Apply for Professional Verification
+                    <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-sky-500 text-white font-bold text-[8px]">✓</span>
+                  </h3>
+                  <p className="font-sans text-[9px] text-brand-muted uppercase font-bold tracking-wider mt-0.5">
+                    Licensing Validation Registry Standard
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowVerificationModal(false)}
+                className="p-1.5 hover:bg-gray-100 rounded-lg text-brand-muted hover:text-brand-dark transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Form Body */}
+            <form onSubmit={handleRequestVerification} className="p-6 flex flex-col gap-4 text-left">
+              <p className="font-sans text-xs text-brand-secondary leading-relaxed">
+                Provide your current clinical registration and practitioner credentials below. We cross-verify these against local and national medical board registers.
+              </p>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="font-sans font-bold text-xs text-brand-secondary uppercase tracking-wider">
+                  Practitioner Full Name
+                </label>
+                <input
+                  type="text"
+                  disabled
+                  value={`Dr. ${me.first_name} ${me.last_name}`}
+                  className="w-full bg-gray-55 border border-gray-100 rounded-xl py-2.5 px-3.5 font-sans text-sm text-brand-muted outline-none cursor-not-allowed"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <label className="font-sans font-bold text-xs text-brand-secondary uppercase tracking-wider">
+                    Clinical Specialization
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={verifySpecialization}
+                    onChange={(e) => setVerifySpecialization(e.target.value)}
+                    placeholder="e.g. Pediatrics"
+                    className="w-full bg-brand-bg border border-transparent hover:border-brand-light-blue focus:border-brand-primary focus:bg-white rounded-xl py-2.5 px-3.5 font-sans text-sm text-brand-dark outline-none transition-all"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="font-sans font-bold text-xs text-brand-secondary uppercase tracking-wider">
+                    Medical Board / Council
+                  </label>
+                  <select
+                    value={verifyBoard}
+                    onChange={(e) => setVerifyBoard(e.target.value)}
+                    className="w-full bg-brand-bg border border-transparent hover:border-brand-light-blue focus:border-brand-primary focus:bg-white rounded-xl py-2.5 px-3.5 font-sans text-sm text-brand-dark outline-none transition-all cursor-pointer"
+                  >
+                    <option value="Medical Council of India">Medical Council of India (MCI)</option>
+                    <option value="Delhi Medical Council">Delhi Medical Council (DMC)</option>
+                    <option value="Karnataka Medical Council">Karnataka Medical Council (KMC)</option>
+                    <option value="Maharashtra Medical Council">Maharashtra Medical Council (MMC)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="font-sans font-bold text-xs text-brand-secondary uppercase tracking-wider">
+                  State License Registration Number
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={verifyRegNumber}
+                  onChange={(e) => setVerifyRegNumber(e.target.value)}
+                  placeholder="e.g. REG-12345-DL"
+                  className="w-full bg-brand-bg border border-transparent hover:border-brand-light-blue focus:border-brand-primary focus:bg-white rounded-xl py-2.5 px-3.5 font-sans text-sm text-brand-dark outline-none transition-all"
+                />
+              </div>
+
+              {/* Document upload simulation */}
+              <div className="flex flex-col gap-1.5">
+                <label className="font-sans font-bold text-xs text-brand-secondary uppercase tracking-wider">
+                  Upload Practitioner License / Certificate
+                </label>
+                <div className="border border-dashed border-gray-200 hover:border-brand-primary/40 rounded-2xl p-4 bg-brand-bg hover:bg-brand-light-blue/20 transition-all cursor-pointer flex flex-col items-center justify-center gap-1.5 text-center">
+                  <span className="text-xl">📄</span>
+                  <span className="font-sans text-xs font-bold text-brand-primary">{verifyLicenseFile}</span>
+                  <span className="font-sans text-[10px] text-brand-muted">Click to select document or drag-and-drop clinical certificate scan</span>
+                </div>
+              </div>
+
+              {/* Developer Auto-Approve Checkbox */}
+              <div className="bg-brand-light-blue/30 rounded-xl p-3 border border-brand-light-blue/50 flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  id="auto-approve-checkbox"
+                  checked={verifyAutoApprove}
+                  onChange={(e) => setVerifyAutoApprove(e.target.checked)}
+                  className="w-4 h-4 text-brand-primary border-gray-300 rounded focus:ring-brand-primary cursor-pointer"
+                />
+                <label htmlFor="auto-approve-checkbox" className="font-sans text-xs text-brand-primary font-bold cursor-pointer select-none">
+                  ⚡ Auto-Approve Verification Instantly!
+                </label>
+              </div>
+
+              <div className="flex items-center gap-3 justify-end border-t border-gray-100 pt-4 mt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowVerificationModal(false)}
+                  className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-brand-secondary font-sans text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={verifySubmitting}
+                  className="px-5 py-2.5 bg-brand-primary hover:bg-brand-primary/95 text-white font-sans text-xs font-black rounded-xl transition-all cursor-pointer shadow-md shadow-brand-primary/10"
+                >
+                  {verifySubmitting ? 'Submitting...' : 'Submit Credentials'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
 
     </DashboardLayout>

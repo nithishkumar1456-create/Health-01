@@ -22,7 +22,6 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
     def validate(self, attrs):
         data = super().validate(attrs)
-        # We can also add extra fields in the JSON response if desired
         data['role'] = self.user.role
         is_verified = False
         if self.user.role == 'doctor' and hasattr(self.user, 'doctor_profile'):
@@ -34,13 +33,14 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 class DoctorProfileSerializer(serializers.ModelSerializer):
     verified_by_username = serializers.ReadOnlyField(source='verified_by.username')
 
-    class ModelSerializer:
-        model = DoctorProfile
-        fields = ['specialization', 'registration_number', 'is_verified', 'verified_by', 'verified_by_username', 'verified_at']
-
     class Meta:
         model = DoctorProfile
-        fields = ['specialization', 'registration_number', 'is_verified', 'verified_by', 'verified_by_username', 'verified_at']
+        fields = [
+            'specialization', 'registration_number', 'is_verified',
+            'verified_by', 'verified_by_username', 'verified_at',
+            'education', 'title', 'clinic_timings', 'bio', 'profile_detail',
+            'verification_requested', 'license_file_url'
+        ]
         read_only_fields = ['is_verified', 'verified_by', 'verified_at']
 
 
@@ -49,7 +49,10 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'role', 'phone', 'first_name', 'last_name', 'doctor_profile']
+        fields = [
+            'id', 'username', 'email', 'role', 'phone',
+            'first_name', 'last_name', 'avatar_url', 'doctor_profile'
+        ]
         read_only_fields = ['role']
 
 
@@ -60,7 +63,7 @@ class RegistrationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['username', 'email', 'password', 'role', 'phone', 'specialization', 'registration_number']
+        fields = ['username', 'email', 'password', 'role', 'phone', 'first_name', 'last_name', 'specialization', 'registration_number']
 
     def validate(self, attrs):
         role = attrs.get('role', User.CLIENT)
@@ -99,25 +102,83 @@ class RegistrationSerializer(serializers.ModelSerializer):
 
 
 class ProfileUpdateSerializer(serializers.ModelSerializer):
-    specialization = serializers.CharField(required=False, allow_blank=True)
-    registration_number = serializers.CharField(required=False, allow_blank=True)
+    # User-level fields
+    first_name = serializers.CharField(required=False, allow_blank=True)
+    last_name = serializers.CharField(required=False, allow_blank=True)
+    phone = serializers.CharField(required=False, allow_blank=True)
+    avatar_url = serializers.URLField(required=False, allow_blank=True, allow_null=True)
+
+    # Doctor profile fields (written-through)
+    specialization = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    registration_number = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    education = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    title = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    clinic_timings = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    bio = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    profile_detail = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
         model = User
-        fields = ['phone', 'specialization', 'registration_number']
+        fields = [
+            'first_name', 'last_name', 'phone', 'avatar_url',
+            'specialization', 'registration_number',
+            'education', 'title', 'clinic_timings', 'bio', 'profile_detail'
+        ]
 
     def update(self, instance, validated_data):
-        if 'phone' in validated_data:
-            instance.phone = validated_data['phone']
+        # Extract doctor-specific fields
+        doctor_fields = {
+            key: validated_data.pop(key)
+            for key in ['specialization', 'registration_number', 'education', 'title', 'clinic_timings', 'bio', 'profile_detail']
+            if key in validated_data
+        }
+
+        # Update user fields
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
         instance.save()
 
-        if instance.role == User.DOCTOR and hasattr(instance, 'doctor_profile'):
-            profile = instance.doctor_profile
-            if 'specialization' in validated_data:
-                profile.specialization = validated_data['specialization']
-            if 'registration_number' in validated_data:
-                profile.registration_number = validated_data['registration_number']
+        # Update DoctorProfile if user is a doctor
+        if instance.role == User.DOCTOR:
+            profile, _ = DoctorProfile.objects.get_or_create(user=instance, defaults={'registration_number': 'REG-PENDING'})
+            for attr, value in doctor_fields.items():
+                setattr(profile, attr, value)
             profile.save()
 
         return instance
 
+
+class AdminCreateUserSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    specialization = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    registration_number = serializers.CharField(required=False, allow_blank=True, write_only=True)
+
+    class Meta:
+        model = User
+        fields = ['username', 'email', 'password', 'role', 'phone', 'first_name', 'last_name', 'specialization', 'registration_number']
+
+    def create(self, validated_data):
+        role = validated_data.get('role', User.CLIENT)
+        specialization = validated_data.pop('specialization', '')
+        registration_number = validated_data.pop('registration_number', '')
+        password = validated_data.pop('password', None) or User.objects.make_random_password()
+        
+        user = User(**validated_data)
+        user.set_password(password)
+        user.save()
+        
+        if role == User.DOCTOR:
+            DoctorProfile.objects.create(
+                user=user,
+                specialization=specialization,
+                registration_number=registration_number or 'REG-ADMIN-CREATED',
+                is_verified=True  # Admin-created doctors are auto-verified
+            )
+            
+        return user
+
+
+class VerificationRequestSerializer(serializers.Serializer):
+    specialization = serializers.CharField(required=True)
+    registration_number = serializers.CharField(required=True)
+    license_file_url = serializers.URLField(required=False, allow_blank=True, allow_null=True)

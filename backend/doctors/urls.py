@@ -3,7 +3,8 @@ from .views import (
     DoctorNearbyView,
     DoctorRetrieveDestroyView,
     DoctorClaimView,
-    DoctorVerifyView
+    DoctorVerifyView,
+    DoctorReviewView,
 )
 
 urlpatterns = [
@@ -11,4 +12,5 @@ urlpatterns = [
     path('<int:pk>/', DoctorRetrieveDestroyView.as_view(), name='doctor_detail_delete'),
     path('<int:pk>/claim/', DoctorClaimView.as_view(), name='doctor_claim'),
     path('<int:pk>/verify/', DoctorVerifyView.as_view(), name='doctor_verify'),
+    path('<int:pk>/reviews/', DoctorReviewView.as_view(), name='doctor_review'),
 ]

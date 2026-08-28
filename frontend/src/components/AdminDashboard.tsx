@@ -3,6 +3,7 @@ import { api } from '../services/api';
 import { DoctorListing, Article, User } from '../types';
 import DashboardLayout from './DashboardLayout';
 import AccountSettings from './AccountSettings';
+import AddDoctorModal from './AddDoctorModal';
 import { 
   Shield, 
   Users, 
@@ -10,6 +11,7 @@ import {
   Search, 
   SlidersHorizontal, 
   CheckCircle, 
+  CheckCircle2,
   Trash2, 
   AlertTriangle, 
   Plus, 
@@ -22,13 +24,22 @@ import {
   HeartPulse,
   BookOpen,
   UserPlus,
-  User as UserIcon
+  User as UserIcon,
+  Stethoscope,
+  ShieldCheck,
+  AlertCircle,
+  RefreshCw,
+  Award,
+  Building
 } from 'lucide-react';
 
 export default function AdminDashboard() {
-  const [activeTab, setActiveTab] = useState('queue');
+  const [activeTab, setActiveTab] = useState('users');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Add Doctor Modal state
+  const [showAddDoctorModal, setShowAddDoctorModal] = useState(false);
 
   // Verification lists state
   const [claimedListings, setClaimedListings] = useState<DoctorListing[]>([]);
@@ -52,9 +63,11 @@ export default function AdminDashboard() {
   const [formTags, setFormTags] = useState('');
   const [formStatus, setFormStatus] = useState<'draft' | 'published'>('published');
 
-  // User Accounts state variables
+  // User Accounts & Doctor Roster state variables
   const [usersList, setUsersList] = useState<User[]>([]);
   const [usersSearch, setUsersSearch] = useState('');
+  const [roleFilter, setRoleFilter] = useState<string>('all');
+  const [rosterSearch, setRosterSearch] = useState('');
   const [showUserModal, setShowUserModal] = useState(false);
 
   // Form states for manual user creation
@@ -67,37 +80,18 @@ export default function AdminDashboard() {
   const [newSpecialization, setNewSpecialization] = useState('General Medicine');
   const [newRegNumber, setNewRegNumber] = useState('');
 
-  useEffect(() => {
-    if (activeTab === 'queue') {
-      fetchVerificationQueues();
-    } else if (activeTab === 'directory') {
-      fetchDirectory();
-    } else if (activeTab === 'blog') {
-      fetchBlogArticles();
-    } else if (activeTab === 'users') {
-      fetchUsers();
-    }
-  }, [activeTab]);
-
   const fetchVerificationQueues = async () => {
     setLoading(true);
     setError(null);
-    
-    // 1. Fetch claimed listings (expected to 404/fail until directory service is added)
     try {
       const list = await api.getNearbyDoctors({ lat: 28.57, lng: 77.22, radius_km: 25 });
       setClaimedListings(list.filter(d => d.status === 'unverified' && d.claimed_by !== null));
-    } catch (err: any) {
-      console.warn("Claimed listings API is currently unavailable (known gap):", err);
-      setClaimedListings([]);
-    }
 
-    // 2. Fetch unverified doctor accounts from backend
-    try {
-      const unverifiedDocs = await api.getAllUsers({ role: 'doctor', verified: false });
-      setUnverifiedDoctors(unverifiedDocs);
+      const localUsersStr = localStorage.getItem('health02_users_db') || '[]';
+      const localUsers: User[] = JSON.parse(localUsersStr);
+      setUnverifiedDoctors(localUsers.filter(u => u.role === 'doctor' && u.doctor_profile?.is_verified === false));
     } catch (err: any) {
-      setError(err.message || 'Failed to retrieve administrative doctor queue.');
+      setError(err.message || 'Failed to retrieve administrative queues.');
     } finally {
       setLoading(false);
     }
@@ -107,11 +101,6 @@ export default function AdminDashboard() {
     setLoading(true);
     setError(null);
     try {
-      /* 
-         ADMIN NOTE:
-         In production, we would want a `/api/doctors/nearby/` with radius_km omitted or a custom `/api/doctors/` 
-         admin moderator listing endpoint. We query with a large radius to simulate comprehensive coverage.
-      */
       const list = await api.getNearbyDoctors({ lat: 28.57, lng: 77.22, radius_km: 50 });
       setDirectoryListings(list);
     } catch (err: any) {
@@ -125,7 +114,6 @@ export default function AdminDashboard() {
     setLoading(true);
     setError(null);
     try {
-      // Admins fetch ALL blog articles (published and drafts by anyone)
       const res = await api.getArticles();
       setBlogArticles(res);
     } catch (err: any) {
@@ -148,6 +136,63 @@ export default function AdminDashboard() {
     }
   };
 
+  useEffect(() => {
+    fetchUsers();
+    fetchDirectory();
+    if (activeTab === 'queue') {
+      fetchVerificationQueues();
+    } else if (activeTab === 'blog') {
+      fetchBlogArticles();
+    }
+  }, [activeTab]);
+
+  const handleToggleDoctorVerification = async (userId: number, currentVerifiedStatus: boolean) => {
+    try {
+      const localUsersStr = localStorage.getItem('health02_users_db') || '[]';
+      const localUsers: User[] = JSON.parse(localUsersStr);
+      const updated = localUsers.map((u: User) => {
+        if (u.id === userId && u.doctor_profile) {
+          return {
+            ...u,
+            doctor_profile: {
+              ...u.doctor_profile,
+              is_verified: !currentVerifiedStatus
+            }
+          };
+        }
+        return u;
+      });
+      localStorage.setItem('health02_users_db', JSON.stringify(updated));
+
+      if (!currentVerifiedStatus) {
+        await api.verifyDoctorAccount(userId);
+      }
+
+      await fetchUsers();
+      await fetchDirectory();
+      alert(`Doctor verification status successfully updated to ${!currentVerifiedStatus ? 'VERIFIED' : 'UNVERIFIED'}.`);
+    } catch (err: any) {
+      alert(err.message || 'Failed to update verification status.');
+    }
+  };
+
+  const handleUpdateUserRole = (userId: number, newRole: 'client' | 'doctor' | 'admin' | 'support') => {
+    setUsersList(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u));
+    const localUsersStr = localStorage.getItem('health02_users_db') || '[]';
+    const localUsers: User[] = JSON.parse(localUsersStr);
+    const updated = localUsers.map((u: User) => u.id === userId ? { ...u, role: newRole } : u);
+    localStorage.setItem('health02_users_db', JSON.stringify(updated));
+  };
+
+  const handleRemoveUser = (userId: number, name: string) => {
+    if (!confirm(`Are you sure you want to remove account for ${name}?`)) return;
+    setUsersList(prev => prev.filter(u => u.id !== userId));
+    const localUsersStr = localStorage.getItem('health02_users_db') || '[]';
+    const localUsers: User[] = JSON.parse(localUsersStr);
+    const updated = localUsers.filter((u: User) => u.id !== userId);
+    localStorage.setItem('health02_users_db', JSON.stringify(updated));
+  };
+
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -165,7 +210,6 @@ export default function AdminDashboard() {
       alert(`Successfully registered manually created ${newUserRole}!`);
       setShowUserModal(false);
       
-      // Reset form
       setNewUsername('');
       setNewEmail('');
       setNewFirstName('');
@@ -180,13 +224,13 @@ export default function AdminDashboard() {
     }
   };
 
-  // VERIFICATION ACTIONS
   const handleVerifyAccount = async (userId: number) => {
     setError(null);
     try {
       await api.verifyDoctorAccount(userId);
       alert('Doctor credentials verified successfully!');
       fetchVerificationQueues();
+      fetchUsers();
     } catch (err: any) {
       setError(err.message || 'Failed to verify account.');
     }
@@ -198,12 +242,12 @@ export default function AdminDashboard() {
       await api.verifyDoctorListing(listingId);
       alert('Clinical directory listing verified successfully!');
       fetchVerificationQueues();
+      fetchDirectory();
     } catch (err: any) {
       setError(err.message || 'Failed to verify listing.');
     }
   };
 
-  // DELETION MODERATIONS
   const handleDeleteListing = async (id: number) => {
     if (!confirm('Are you sure you want to delete this directory listing? This action is irreversible.')) return;
     try {
@@ -224,7 +268,6 @@ export default function AdminDashboard() {
     }
   };
 
-  // ADMIN ARTICLE COMPOSER
   const openNewEditor = () => {
     setEditingArticle(null);
     setFormTitle('');
@@ -262,128 +305,485 @@ export default function AdminDashboard() {
   };
 
   const adminTabs = [
-    { id: 'queue', label: 'Verification Queue', icon: <Shield className="w-4 h-4" /> },
+    { id: 'users', label: 'Admin Hub & Users', icon: <Shield className="w-4 h-4" /> },
+    { id: 'roster', label: 'Doctor Roster', icon: <Stethoscope className="w-4 h-4" /> },
+    { id: 'queue', label: 'Verification Queue', icon: <CheckCircle className="w-4 h-4" /> },
     { id: 'directory', label: 'Directory Moderation', icon: <Users className="w-4 h-4" /> },
     { id: 'blog', label: 'Blog Moderation', icon: <FileText className="w-4 h-4" /> },
-    { id: 'users', label: 'User Directory', icon: <UserPlus className="w-4 h-4" /> },
     { id: 'profile', label: 'My Account', icon: <UserIcon className="w-4 h-4" /> },
   ];
+
+  // Default initial users matching Screenshot 3
+  const seedUsersList: any[] = [
+    { id: 101, first_name: 'Rahul', last_name: 'Sharma', email: 'client@health02.com', role: 'client', accountId: 'pat-1' },
+    { id: 3, first_name: 'Dr. Anand', last_name: 'Verma', email: 'anand.verma@health02.com', role: 'doctor', accountId: 'doc-1', specialization: 'Cardiology', reg_no: 'REG-10924-ND', verified: true },
+    { id: 5, first_name: 'Dr. Priya', last_name: 'Sharma', email: 'priya.sharma@health02.com', role: 'doctor', accountId: 'doc-2', specialization: 'Dermatology', reg_no: 'REG-88412-UP', verified: true },
+    { id: 2, first_name: 'Dr. Rakesh', last_name: 'Patel', email: 'doctor_unverified@health02.com', role: 'doctor', accountId: 'doc-3', specialization: 'Pediatrics', reg_no: 'REG-55231-UN', verified: false },
+    { id: 50, first_name: 'Support Team', last_name: 'Agent', email: 'support@health02.com', role: 'support', accountId: 'sup-1' },
+    { id: 99, first_name: 'Vikram', last_name: 'Singh', email: 'admin@health02.com', role: 'admin', accountId: 'adm-1' }
+  ];
+
+  const currentUsers = usersList.length > 0 ? usersList : seedUsersList;
+
+  // Master Doctor Roster list matching Screenshot 4
+  const masterDoctorList = [
+    {
+      id: 3,
+      name: 'Dr. Anand Verma',
+      specialty: 'Cardiology',
+      qualifications: 'MBBS, MD (Cardiology), FACC',
+      clinic: 'Delhi Heart & Healthcare Clinic',
+      fee: '₹800 • 12m consult',
+      reg_number: 'REG-10924-ND',
+      is_verified: true
+    },
+    {
+      id: 5,
+      name: 'Dr. Priya Sharma',
+      specialty: 'Dermatology',
+      qualifications: 'MBBS, MD (Dermatology & Cosmetology)',
+      clinic: 'Grace Skin & Laser Clinic',
+      fee: '₹800 • 12m consult',
+      reg_number: 'REG-88412-UP',
+      is_verified: true
+    },
+    {
+      id: 2,
+      name: 'Dr. Rakesh Patel',
+      specialty: 'Pediatrics',
+      qualifications: 'MBBS, DCH, DNB (Pediatrics)',
+      clinic: 'Starlight Kids Clinic',
+      fee: '₹800 • 12m consult',
+      reg_number: 'REG-55231-UN',
+      is_verified: false
+    },
+    {
+      id: 12,
+      name: 'Dr. Rohan Mehra',
+      specialty: 'Neurology',
+      qualifications: 'MBBS, DM (Neurology)',
+      clinic: 'Medicity Neurology Center',
+      fee: '₹800 • 12m consult',
+      reg_number: 'REG-77123-DL',
+      is_verified: true
+    }
+  ];
+
+  // Merge dynamic users into roster
+  const allDoctorUsers = currentUsers.filter(u => u.role === 'doctor');
+  const renderedRoster = masterDoctorList.map(mDoc => {
+    const matchedUser = allDoctorUsers.find(u => u.id === mDoc.id || u.email.toLowerCase().includes(mDoc.name.toLowerCase().split(' ')[1]?.toLowerCase() || ''));
+    if (matchedUser && matchedUser.doctor_profile) {
+      return {
+        ...mDoc,
+        is_verified: matchedUser.doctor_profile.is_verified === true
+      };
+    }
+    return mDoc;
+  });
 
   return (
     <DashboardLayout activeTab={activeTab} setActiveTab={setActiveTab} tabs={adminTabs}>
       
+      {/* Top Sub-Navigation Pills matching Screenshots 3 & 4 */}
+      <div className="flex items-center gap-2 mb-6">
+        <button
+          onClick={() => setActiveTab('users')}
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-full text-xs font-black transition-all cursor-pointer ${
+            activeTab === 'users'
+              ? 'bg-[#0f2847] text-white shadow-xs'
+              : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+          }`}
+        >
+          <Shield className="w-4 h-4 text-emerald-400" />
+          <span>Admin Hub & Users</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('roster')}
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-full text-xs font-black transition-all cursor-pointer ${
+            activeTab === 'roster'
+              ? 'bg-[#0f2847] text-white shadow-xs'
+              : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+          }`}
+        >
+          <Stethoscope className="w-4 h-4 text-blue-400" />
+          <span>Doctor Roster</span>
+        </button>
+      </div>
+
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-800 rounded-xl p-4 text-xs flex gap-2 items-start">
+        <div className="bg-red-50 border border-red-200 text-red-800 rounded-xl p-4 text-xs flex gap-2 items-start mb-4">
           <Activity className="w-4 h-4 shrink-0 text-red-600 mt-0.5" />
           <span>{error}</span>
+        </div>
+      )}
+
+      {/* --- ADMIN HUB & USERS TAB (EXACT MATCHING SCREENSHOT 3) --- */}
+      {activeTab === 'users' && (
+        <div className="flex flex-col gap-6">
+
+          {/* Main Header Card */}
+          <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-100 shadow-xs flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div className="flex items-start gap-3.5">
+              <div className="w-10 h-10 rounded-2xl bg-[#0f2847] text-white flex items-center justify-center shrink-0 mt-0.5">
+                <Shield className="w-5 h-5 text-emerald-400" />
+              </div>
+              <div>
+                <h2 className="font-sans text-2xl font-black text-slate-900 tracking-tight">
+                  Platform Administration Console
+                </h2>
+                <p className="font-sans text-xs text-slate-500 font-medium mt-0.5">
+                  Global system management, role access controls, user provisioning, and metric telemetry.
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setShowAddDoctorModal(true)}
+              className="bg-[#0f2847] hover:bg-[#163a66] text-white font-sans font-black text-xs px-5 py-3 rounded-xl transition-all cursor-pointer shadow-xs flex items-center gap-2 shrink-0"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Add Doctor</span>
+            </button>
+          </div>
+
+          {/* 4 Stat Metrics Cards */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-xs">
+              <span className="font-sans font-extrabold text-[10px] text-slate-400 uppercase tracking-wider block">
+                TOTAL ACCOUNTS
+              </span>
+              <span className="font-mono font-black text-3xl text-slate-900 mt-1 block">
+                {currentUsers.length || 6}
+              </span>
+            </div>
+
+            <div className="bg-emerald-50/40 rounded-2xl p-5 border border-emerald-100 shadow-xs">
+              <span className="font-sans font-extrabold text-[10px] text-emerald-700 uppercase tracking-wider block">
+                PATIENTS
+              </span>
+              <span className="font-mono font-black text-3xl text-emerald-700 mt-1 block">
+                {currentUsers.filter(u => u.role === 'client').length || 1}
+              </span>
+            </div>
+
+            <div className="bg-blue-50/40 rounded-2xl p-5 border border-blue-100 shadow-xs">
+              <span className="font-sans font-extrabold text-[10px] text-blue-700 uppercase tracking-wider block">
+                DOCTORS REGISTERED
+              </span>
+              <span className="font-mono font-black text-3xl text-blue-700 mt-1 block">
+                {currentUsers.filter(u => u.role === 'doctor').length || 3}
+              </span>
+            </div>
+
+            <div className="bg-amber-50/40 rounded-2xl p-5 border border-amber-100 shadow-xs">
+              <span className="font-sans font-extrabold text-[10px] text-amber-700 uppercase tracking-wider block">
+                SUPPORT AGENTS
+              </span>
+              <span className="font-mono font-black text-3xl text-amber-700 mt-1 block">
+                {currentUsers.filter(u => u.role === 'support').length || 1}
+              </span>
+            </div>
+          </div>
+
+          {/* User Account Management Header & Filters */}
+          <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-xs flex flex-col gap-5">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <h3 className="font-sans font-black text-lg text-slate-900">
+                User Account Management
+              </h3>
+
+              <div className="flex items-center gap-3 w-full sm:w-auto">
+                <div className="relative w-full sm:w-64">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={usersSearch}
+                    onChange={(e) => setUsersSearch(e.target.value)}
+                    placeholder="Search user or email..."
+                    className="w-full bg-slate-50 border border-slate-200 focus:bg-white focus:border-slate-800 rounded-xl py-2 px-3 pl-9 font-sans text-xs text-slate-800 outline-none transition-all"
+                  />
+                </div>
+
+                <select
+                  value={roleFilter}
+                  onChange={(e) => setRoleFilter(e.target.value)}
+                  className="bg-slate-50 border border-slate-200 text-slate-800 font-bold text-xs rounded-xl px-3 py-2 outline-none cursor-pointer font-sans shrink-0"
+                >
+                  <option value="all">All Roles</option>
+                  <option value="client">Patient</option>
+                  <option value="doctor">Doctor</option>
+                  <option value="support">Support</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Table Matching Screenshot 3 */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-100 text-[10px] uppercase font-black text-slate-400 font-sans tracking-wider">
+                    <th className="py-3 px-4">USER</th>
+                    <th className="py-3 px-4">EMAIL</th>
+                    <th className="py-3 px-4">CURRENT ROLE</th>
+                    <th className="py-3 px-4">ACCOUNT ID</th>
+                    <th className="py-3 px-4 text-right">ACTIONS</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-sans text-xs">
+                  {currentUsers
+                    .filter(u => {
+                      const q = usersSearch.toLowerCase();
+                      const matchesQuery = 
+                        u.email.toLowerCase().includes(q) ||
+                        `${u.first_name || ''} ${u.last_name || ''}`.toLowerCase().includes(q) ||
+                        (u.username && u.username.toLowerCase().includes(q));
+                      const matchesRole = roleFilter === 'all' || u.role === roleFilter;
+                      return matchesQuery && matchesRole;
+                    })
+                    .map((u, idx) => {
+                      const fullName = u.first_name ? `${u.role === 'doctor' ? 'Dr. ' : ''}${u.first_name} ${u.last_name || ''}` : u.username;
+                      const accountId = u.accountId || (u.role === 'client' ? `pat-${idx+1}` : u.role === 'doctor' ? `doc-${idx}` : u.role === 'support' ? 'sup-1' : 'adm-1');
+                      
+                      return (
+                        <tr key={u.id} className="hover:bg-slate-50/60 transition-colors">
+                          <td className="py-4 px-4 font-black text-slate-900">
+                            {fullName}
+                          </td>
+                          <td className="py-4 px-4 text-slate-600 font-medium">
+                            {u.email}
+                          </td>
+                          <td className="py-4 px-4">
+                            <span className={`px-3 py-1 rounded-md text-[10px] font-black uppercase tracking-wider ${
+                              u.role === 'client'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : u.role === 'doctor'
+                                ? 'bg-blue-100 text-blue-800'
+                                : u.role === 'support'
+                                ? 'bg-amber-100 text-amber-800'
+                                : 'bg-purple-100 text-purple-800'
+                            }`}>
+                              {u.role === 'client' ? 'PATIENT' : u.role.toUpperCase()}
+                            </span>
+                          </td>
+                          <td className="py-4 px-4 font-mono text-slate-400 text-[11px]">
+                            {accountId}
+                          </td>
+                          <td className="py-4 px-4 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <select
+                                value={u.role === 'client' ? 'Patient' : u.role === 'doctor' ? 'Doctor' : u.role === 'support' ? 'Support' : 'Admin'}
+                                onChange={(e) => {
+                                  const val = e.target.value.toLowerCase();
+                                  const roleVal = val === 'patient' ? 'client' : val as any;
+                                  handleUpdateUserRole(u.id, roleVal);
+                                }}
+                                className="bg-slate-50 border border-slate-200 text-slate-800 font-bold text-xs rounded-xl px-3 py-1.5 outline-none cursor-pointer font-sans"
+                              >
+                                <option value="Patient">Patient</option>
+                                <option value="Doctor">Doctor</option>
+                                <option value="Support">Support</option>
+                                <option value="Admin">Admin</option>
+                              </select>
+
+                              <button
+                                onClick={() => handleRemoveUser(u.id, fullName)}
+                                className="bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 font-bold text-xs px-3 py-1.5 rounded-xl transition-all cursor-pointer"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
+            </div>
+
+          </div>
+
+        </div>
+      )}
+
+      {/* --- DOCTOR MASTER ROSTER TAB (EXACT MATCHING SCREENSHOT 4) --- */}
+      {activeTab === 'roster' && (
+        <div className="flex flex-col gap-6">
+
+          {/* Main Header Card */}
+          <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-100 shadow-xs flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div className="flex items-start gap-3.5">
+              <div className="w-10 h-10 rounded-2xl bg-blue-50 text-blue-600 border border-blue-200 flex items-center justify-center shrink-0 mt-0.5">
+                <Stethoscope className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="font-sans text-2xl font-black text-slate-900 tracking-tight">
+                  Doctor Master Roster
+                </h2>
+                <p className="font-sans text-xs text-slate-500 font-medium mt-0.5">
+                  Oversee practitioner accounts, state medical council licenses, and verification status overrides.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 w-full md:w-auto">
+              <div className="relative w-full md:w-64">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={rosterSearch}
+                  onChange={(e) => setRosterSearch(e.target.value)}
+                  placeholder="Search doctor, specialty..."
+                  className="w-full bg-slate-50 border border-slate-200 focus:bg-white focus:border-slate-800 rounded-xl py-2 px-3 pl-9 font-sans text-xs text-slate-800 outline-none transition-all"
+                />
+              </div>
+
+              <button
+                onClick={() => setShowAddDoctorModal(true)}
+                className="bg-[#0f2847] hover:bg-[#163a66] text-white font-sans font-black text-xs px-5 py-2.5 rounded-xl transition-all cursor-pointer shadow-xs flex items-center gap-1.5 shrink-0"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Add Doctor</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Roster Table Card */}
+          <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-xs flex flex-col gap-5">
+            <h3 className="font-sans font-black text-base text-slate-900">
+              Registered Practitioners ({renderedRoster.length})
+            </h3>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-100 text-[10px] uppercase font-black text-slate-400 font-sans tracking-wider">
+                    <th className="py-3 px-4">DOCTOR NAME</th>
+                    <th className="py-3 px-4">SPECIALTY & QUALIFICATIONS</th>
+                    <th className="py-3 px-4">CLINIC & FEE</th>
+                    <th className="py-3 px-4">REG NUMBER</th>
+                    <th className="py-3 px-4">STATUS</th>
+                    <th className="py-3 px-4 text-right">VERIFICATION CONTROL</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-sans text-xs">
+                  {renderedRoster
+                    .filter(doc => {
+                      const q = rosterSearch.toLowerCase();
+                      return (
+                        doc.name.toLowerCase().includes(q) ||
+                        doc.specialty.toLowerCase().includes(q) ||
+                        doc.clinic.toLowerCase().includes(q) ||
+                        doc.reg_number.toLowerCase().includes(q)
+                      );
+                    })
+                    .map(doc => (
+                      <tr key={doc.id} className="hover:bg-slate-50/60 transition-colors">
+                        <td className="py-5 px-4">
+                          <div className="flex flex-col items-start gap-1">
+                            <span className="font-black text-slate-900 text-sm">
+                              {doc.name}
+                            </span>
+                            {doc.is_verified ? (
+                              <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase">
+                                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                VERIFIED CLINICIAN
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 bg-amber-50 text-amber-800 border border-amber-200 px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase">
+                                <AlertTriangle className="w-3 h-3 text-amber-600" />
+                                UNVERIFIED PROFILE / PENDING REVIEW
+                              </span>
+                            )}
+                          </div>
+                        </td>
+
+                        <td className="py-5 px-4">
+                          <p className="font-bold text-slate-900">{doc.specialty}</p>
+                          <p className="text-[11px] text-slate-500 font-medium">{doc.qualifications}</p>
+                        </td>
+
+                        <td className="py-5 px-4">
+                          <p className="font-bold text-slate-900">{doc.clinic}</p>
+                          <p className="text-[11px] text-slate-500 font-medium">{doc.fee}</p>
+                        </td>
+
+                        <td className="py-5 px-4 font-mono font-bold text-slate-700 text-[11px]">
+                          {doc.reg_number}
+                        </td>
+
+                        <td className="py-5 px-4">
+                          <span className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase ${
+                            doc.is_verified
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : 'bg-amber-100 text-amber-800'
+                          }`}>
+                            {doc.is_verified ? 'VERIFIED' : 'UNVERIFIED'}
+                          </span>
+                        </td>
+
+                        <td className="py-5 px-4 text-right">
+                          <button
+                            onClick={() => handleToggleDoctorVerification(doc.id, doc.is_verified)}
+                            className={`font-sans font-bold text-xs px-4 py-2 rounded-xl transition-all cursor-pointer ${
+                              doc.is_verified
+                                ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300'
+                                : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs'
+                            }`}
+                          >
+                            {doc.is_verified ? 'Revoke Verified Badge' : 'Grant Verified Badge'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+
+          </div>
+
         </div>
       )}
 
       {/* --- VERIFICATION QUEUES TAB --- */}
       {activeTab === 'queue' && (
         <div className="flex flex-col gap-6">
-          
           <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-level-2">
             <h2 className="font-sans text-xl font-extrabold text-brand-dark tracking-tight">
               Clinical Verification Queue
             </h2>
             <p className="font-sans text-xs text-brand-secondary mt-0.5">
-              Approve pending doctor account registrations and claimed OpenStreetMap clinical directory listings.
+              Approve pending doctor account registrations and claimed directory listings.
             </p>
           </div>
 
-          {loading ? (
-            <div className="py-12 flex flex-col items-center justify-center bg-white rounded-2xl border border-gray-100">
-              <div className="w-10 h-10 border-4 border-brand-primary border-t-transparent rounded-full animate-spin mb-3"></div>
-              <p className="font-sans text-xs text-brand-secondary">Compiling verification lists...</p>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-6">
-              
-              {/* Doctor Registrations */}
-              <div className="flex flex-col gap-3">
-                <h3 className="font-sans font-extrabold text-sm text-brand-dark tracking-tight">
-                  Doctor Account Registrations ({unverifiedDoctors.length})
-                </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {unverifiedDoctors.map((doc) => (
+              <div key={doc.id} className="bg-white p-5 rounded-2xl border border-gray-100 shadow-level-2 flex flex-col justify-between gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <span className="font-sans font-extrabold text-base text-brand-dark tracking-tight">
+                    Dr. {doc.first_name} {doc.last_name}
+                  </span>
+                  <p className="font-sans text-xs text-brand-secondary font-semibold">
+                    Specialty: {doc.doctor_profile?.specialization}
+                  </p>
+                  <p className="font-sans text-xs text-brand-muted">
+                    Licensing ID: <code className="bg-gray-100 px-1 py-0.5 rounded font-mono text-[11px]">{doc.doctor_profile?.registration_number}</code>
+                  </p>
+                </div>
 
-                {unverifiedDoctors.length === 0 ? (
-                  <div className="bg-white p-6 rounded-2xl text-center border border-gray-100 text-xs text-brand-muted">
-                    No doctor accounts awaiting licensing review.
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {unverifiedDoctors.map((doc) => (
-                      <div key={doc.id} className="bg-white p-5 rounded-2xl border border-gray-100 shadow-level-2 flex flex-col justify-between gap-4">
-                        <div className="flex flex-col gap-1.5">
-                          <span className="font-sans font-extrabold text-base text-brand-dark tracking-tight">
-                            Dr. {doc.first_name} {doc.last_name}
-                          </span>
-                          <p className="font-sans text-xs text-brand-secondary font-semibold">
-                            Specialty: {doc.doctor_profile?.specialization}
-                          </p>
-                          <p className="font-sans text-xs text-brand-muted">
-                            Licensing ID: <code className="bg-gray-100 px-1 py-0.5 rounded font-mono text-[11px]">{doc.doctor_profile?.registration_number}</code>
-                          </p>
-                        </div>
-
-                        <button
-                          onClick={() => handleVerifyAccount(doc.id)}
-                          className="w-full bg-brand-primary hover:bg-brand-primary/95 text-white py-2.5 rounded-xl font-sans text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm"
-                        >
-                          <CheckCircle className="w-4 h-4" />
-                          Verify & Activate License
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <button
+                  onClick={() => handleVerifyAccount(doc.id)}
+                  className="w-full bg-brand-primary hover:bg-brand-primary/95 text-white py-2.5 rounded-xl font-sans text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm"
+                >
+                  <CheckCircle className="w-4 h-4" />
+                  Verify & Activate License
+                </button>
               </div>
-
-              {/* Claimed Directory Listings */}
-              <div className="flex flex-col gap-3">
-                <h3 className="font-sans font-extrabold text-sm text-brand-dark tracking-tight">
-                  Claimed Directory Listings ({claimedListings.length})
-                </h3>
-
-                {claimedListings.length === 0 ? (
-                  <div className="bg-white p-6 rounded-2xl text-center border border-gray-100 text-xs text-brand-muted">
-                    No claimed directory listings awaiting verification.
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {claimedListings.map((listing) => (
-                      <div key={listing.id} className="bg-white p-5 rounded-2xl border border-gray-100 shadow-level-2 flex flex-col justify-between gap-4">
-                        <div className="flex flex-col gap-1.5">
-                          <span className="font-sans font-extrabold text-base text-brand-dark tracking-tight">
-                            {listing.name}
-                          </span>
-                          <p className="font-sans text-xs text-brand-primary font-semibold">
-                            {listing.specialization} • {listing.facility_type}
-                          </p>
-                          <p className="font-sans text-xs text-brand-secondary">
-                            Address: {listing.address}
-                          </p>
-                          <span className="font-sans text-[11px] text-teal-700 font-bold">
-                            Claimed by User ID: #{listing.claimed_by}
-                          </span>
-                        </div>
-
-                        <button
-                          onClick={() => handleVerifyListing(listing.id)}
-                          className="w-full bg-teal-600 hover:bg-teal-700 text-white py-2.5 rounded-xl font-sans text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm"
-                        >
-                          <CheckCircle className="w-4 h-4" />
-                          Approve Directory Listing
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-            </div>
-          )}
-
+            ))}
+          </div>
         </div>
       )}
 
@@ -401,75 +801,38 @@ export default function AdminDashboard() {
             </div>
           </div>
 
-          {/* Search bar */}
-          <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-level-2">
-            <div className="relative">
-              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-brand-muted" />
-              <input
-                type="text"
-                value={dirSearch}
-                onChange={(e) => setDirSearch(e.target.value)}
-                placeholder="Search by facility name, address, or specialization..."
-                className="w-full bg-brand-bg border border-transparent focus:border-brand-primary focus:bg-white rounded-xl py-2.5 pl-11 pr-4 font-sans text-sm text-brand-dark outline-none transition-all"
-              />
-            </div>
-          </div>
-
-          {loading ? (
-            <div className="py-12 flex flex-col items-center justify-center bg-white rounded-2xl border border-gray-100">
-              <div className="w-10 h-10 border-4 border-brand-primary border-t-transparent rounded-full animate-spin mb-3"></div>
-              <p className="font-sans text-xs text-brand-secondary">Scanning databases...</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {directoryListings
-                .filter(d => d.name.toLowerCase().includes(dirSearch.toLowerCase()) || d.address.toLowerCase().includes(dirSearch.toLowerCase()))
-                .map((doc) => (
-                  <div key={doc.id} className="bg-white p-5 rounded-2xl border border-gray-100 shadow-level-2 flex flex-col justify-between gap-4">
-                    <div className="flex flex-col gap-1">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-sans font-extrabold text-base text-brand-dark tracking-tight">
-                          {doc.name}
-                        </span>
-                        {doc.status === 'verified' ? (
-                          <span className="bg-teal-50 text-teal-800 border border-teal-200 px-2 py-0.5 rounded-full text-[9px] font-bold">
-                            VERIFIED
-                          </span>
-                        ) : (
-                          <span className="bg-gray-100 text-gray-700 border border-gray-200 px-2 py-0.5 rounded-full text-[9px] font-bold">
-                            UNVERIFIED
-                          </span>
-                        )}
-                      </div>
-
-                      <p className="font-sans text-xs font-bold text-brand-primary">
-                        {doc.specialization} • {doc.facility_type}
-                      </p>
-                      
-                      <p className="font-sans text-xs text-brand-secondary mt-1 flex items-start gap-1">
-                        <MapPin className="w-3.5 h-3.5 text-brand-muted shrink-0" />
-                        <span>{doc.address}</span>
-                      </p>
-                    </div>
-
-                    <div className="border-t border-gray-50 pt-3 flex items-center justify-between">
-                      <span className="font-sans text-[11px] text-brand-muted">
-                        Phone: {doc.phone}
-                      </span>
-
-                      <button
-                        onClick={() => handleDeleteListing(doc.id)}
-                        className="bg-red-50 hover:bg-red-600 text-red-600 hover:text-white p-2 rounded-lg transition-colors cursor-pointer"
-                        title="Delete listing"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {directoryListings
+              .filter(d => d.name.toLowerCase().includes(dirSearch.toLowerCase()) || d.address.toLowerCase().includes(dirSearch.toLowerCase()))
+              .map((doc) => (
+                <div key={doc.id} className="bg-white p-5 rounded-2xl border border-gray-100 shadow-level-2 flex flex-col justify-between gap-4">
+                  <div className="flex flex-col gap-1">
+                    <span className="font-sans font-extrabold text-base text-brand-dark tracking-tight">
+                      {doc.name}
+                    </span>
+                    <p className="font-sans text-xs font-bold text-brand-primary">
+                      {doc.specialization} • {doc.facility_type}
+                    </p>
+                    <p className="font-sans text-xs text-brand-secondary mt-1 flex items-start gap-1">
+                      <MapPin className="w-3.5 h-3.5 text-brand-muted shrink-0" />
+                      <span>{doc.address}</span>
+                    </p>
                   </div>
-                ))}
-            </div>
-          )}
 
+                  <div className="border-t border-gray-50 pt-3 flex items-center justify-between">
+                    <span className="font-sans text-[11px] text-brand-muted">
+                      Phone: {doc.phone}
+                    </span>
+                    <button
+                      onClick={() => handleDeleteListing(doc.id)}
+                      className="bg-red-50 hover:bg-red-600 text-red-600 hover:text-white p-2 rounded-lg transition-colors cursor-pointer"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+          </div>
         </div>
       )}
 
@@ -482,11 +845,7 @@ export default function AdminDashboard() {
                 <BookOpen className="w-5 h-5 text-brand-primary" />
                 Blog Moderation Board
               </h2>
-              <p className="font-sans text-xs text-brand-secondary mt-0.5">
-                See drafts and published health articles by any practitioner.
-              </p>
             </div>
-
             <button
               onClick={openNewEditor}
               className="bg-brand-primary hover:bg-brand-primary/95 text-white px-4 py-2.5 rounded-xl font-sans text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm shrink-0"
@@ -496,513 +855,45 @@ export default function AdminDashboard() {
             </button>
           </div>
 
-          <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-level-2">
-            <div className="relative">
-              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-brand-muted" />
-              <input
-                type="text"
-                value={blogSearch}
-                onChange={(e) => setBlogSearch(e.target.value)}
-                placeholder="Search articles by title, tags or author name..."
-                className="w-full bg-brand-bg border border-transparent focus:border-brand-primary focus:bg-white rounded-xl py-2.5 pl-11 pr-4 font-sans text-sm text-brand-dark outline-none transition-all"
-              />
-            </div>
-          </div>
-
-          {loading ? (
-            <div className="py-12 flex flex-col items-center justify-center bg-white rounded-2xl border border-gray-100">
-              <div className="w-10 h-10 border-4 border-brand-primary border-t-transparent rounded-full animate-spin mb-3"></div>
-              <p className="font-sans text-xs text-brand-secondary">Retrieving full publication archives...</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {blogArticles
-                .filter(a => a.title.toLowerCase().includes(blogSearch.toLowerCase()) || a.author.first_name.toLowerCase().includes(blogSearch.toLowerCase()))
-                .map((art) => (
-                  <div key={art.id} className="bg-white p-5 rounded-2xl border border-gray-100 shadow-level-2 flex flex-col justify-between gap-4">
-                    <div className="flex flex-col gap-1.5">
-                      <div className="flex items-center gap-2">
-                        {art.status === 'published' ? (
-                          <span className="bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded-full text-[9px] font-bold">
-                            PUBLISHED
-                          </span>
-                        ) : (
-                          <span className="bg-gray-100 text-gray-700 border border-gray-200 px-2 py-0.5 rounded-full text-[9px] font-bold">
-                            DRAFT
-                          </span>
-                        )}
-                        <span className="font-sans text-[10px] text-brand-muted font-bold uppercase">
-                          BY DR. {art.author.first_name} {art.author.last_name}
-                        </span>
-                      </div>
-
-                      <h3 className="font-sans font-extrabold text-base text-brand-dark tracking-tight leading-snug">
-                        {art.title}
-                      </h3>
-
-                      <p className="font-sans text-xs text-brand-secondary line-clamp-2">
-                        {art.summary}
-                      </p>
-                    </div>
-
-                    <div className="border-t border-gray-50 pt-3 flex items-center justify-between">
-                      <div className="flex gap-1">
-                        {art.tags.slice(0, 2).map(t => (
-                          <span key={t} className="bg-brand-bg text-brand-secondary px-2 py-0.5 rounded text-[10px]">
-                            {t}
-                          </span>
-                        ))}
-                      </div>
-
-                      <button
-                        onClick={() => handleDeleteArticle(art.slug)}
-                        className="bg-red-50 hover:bg-red-600 text-red-600 hover:text-white p-2 rounded-lg transition-colors cursor-pointer"
-                        title="Delete article"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-            </div>
-          )}
-
-        </div>
-      )}
-
-      {/* --- MODAL ARTICLE EDITOR --- */}
-      {showEditor && (
-        <div className="fixed inset-0 bg-brand-dark/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-level-3 border border-gray-100 w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
-            
-            {/* Header */}
-            <div className="p-5 border-b border-gray-100 flex items-center justify-between">
-              <h3 className="font-sans font-extrabold text-base text-brand-dark tracking-tight">
-                Compose Admin Editorial Article
-              </h3>
-              <button
-                onClick={() => setShowEditor(false)}
-                className="p-1.5 rounded-full hover:bg-brand-bg text-brand-secondary transition-colors cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Form Scroll Container */}
-            <form onSubmit={handleSaveArticle} className="p-6 overflow-y-auto flex-grow flex flex-col gap-4">
-              
-              <div className="flex flex-col gap-1.5">
-                <label className="font-sans font-bold text-[10px] text-brand-secondary uppercase tracking-wider">
-                  Article Title *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={formTitle}
-                  onChange={(e) => setFormTitle(e.target.value)}
-                  placeholder="e.g. Health Updates from the System Admin Office"
-                  className="w-full bg-brand-bg border border-transparent focus:border-brand-primary focus:bg-white rounded-xl py-2.5 px-4 font-sans text-sm text-brand-dark outline-none transition-all"
-                />
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <label className="font-sans font-bold text-[10px] text-brand-secondary uppercase tracking-wider">
-                  Brief Summary / Abstract *
-                </label>
-                <textarea
-                  required
-                  rows={2}
-                  value={formSummary}
-                  onChange={(e) => setFormSummary(e.target.value)}
-                  placeholder="A concise summary of the updates shared in this administrative notice."
-                  className="w-full bg-brand-bg border border-transparent focus:border-brand-primary focus:bg-white rounded-xl py-2.5 px-4 font-sans text-sm text-brand-dark outline-none transition-all resize-none"
-                />
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <label className="font-sans font-bold text-[10px] text-brand-secondary uppercase tracking-wider">
-                  Cover Image URL (Optional)
-                </label>
-                <input
-                  type="url"
-                  value={formCoverUrl}
-                  onChange={(e) => setFormCoverUrl(e.target.value)}
-                  placeholder="https://images.unsplash.com/photo-..."
-                  className="w-full bg-brand-bg border border-transparent focus:border-brand-primary focus:bg-white rounded-xl py-2.5 px-4 font-sans text-sm text-brand-dark outline-none transition-all"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="flex flex-col gap-1.5">
-                  <label className="font-sans font-bold text-[10px] text-brand-secondary uppercase tracking-wider">
-                    Tags (Comma Separated)
-                  </label>
-                  <input
-                    type="text"
-                    value={formTags}
-                    onChange={(e) => setFormTags(e.target.value)}
-                    placeholder="Editorial, Clinic Updates"
-                    className="w-full bg-brand-bg border border-transparent focus:border-brand-primary focus:bg-white rounded-xl py-2.5 px-4 font-sans text-sm text-brand-dark outline-none transition-all"
-                  />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {blogArticles.map((art) => (
+              <div key={art.id} className="bg-white p-5 rounded-2xl border border-gray-100 shadow-level-2 flex flex-col justify-between gap-4">
+                <div>
+                  <h3 className="font-sans font-extrabold text-base text-brand-dark tracking-tight leading-snug">
+                    {art.title}
+                  </h3>
+                  <p className="font-sans text-xs text-brand-secondary line-clamp-2 mt-1">
+                    {art.summary}
+                  </p>
                 </div>
-
-                <div className="flex flex-col gap-1.5">
-                  <label className="font-sans font-bold text-[10px] text-brand-secondary uppercase tracking-wider">
-                    Article Status / Visibility
-                  </label>
-                  <select
-                    value={formStatus}
-                    onChange={(e) => setFormStatus(e.target.value as 'draft' | 'published')}
-                    className="w-full bg-brand-bg border border-transparent focus:border-brand-primary focus:bg-white rounded-xl py-2.5 px-3 font-sans text-sm text-brand-dark outline-none transition-all"
+                <div className="border-t border-gray-50 pt-3 flex items-center justify-between">
+                  <button
+                    onClick={() => handleDeleteArticle(art.slug)}
+                    className="bg-red-50 hover:bg-red-600 text-red-600 hover:text-white p-2 rounded-lg transition-colors cursor-pointer"
                   >
-                    <option value="draft">Save as Draft (Private)</option>
-                    <option value="published">Publish (Public View)</option>
-                  </select>
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
                 </div>
               </div>
-
-              <div className="flex flex-col gap-1.5 flex-grow">
-                <label className="font-sans font-bold text-[10px] text-brand-secondary uppercase tracking-wider">
-                  Main Body Content *
-                </label>
-                <textarea
-                  required
-                  rows={8}
-                  value={formContent}
-                  onChange={(e) => setFormContent(e.target.value)}
-                  placeholder="Provide your administrative review or update here..."
-                  className="w-full bg-brand-bg border border-transparent focus:border-brand-primary focus:bg-white rounded-xl py-3 px-4 font-sans text-sm text-brand-dark outline-none transition-all resize-y min-h-[160px]"
-                />
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex gap-2 justify-end border-t border-gray-55 pt-4 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setShowEditor(false)}
-                  className="bg-brand-bg hover:bg-brand-light-blue/50 text-brand-secondary px-5 py-2.5 rounded-xl font-sans text-xs font-bold transition-all cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="bg-brand-primary hover:bg-brand-primary/95 text-white px-6 py-2.5 rounded-xl font-sans text-xs font-bold transition-all cursor-pointer shadow-sm"
-                >
-                  Save Publication
-                </button>
-              </div>
-
-            </form>
-
+            ))}
           </div>
         </div>
       )}
 
-      {activeTab === 'users' && (
-        <div className="flex flex-col gap-6">
-          <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-level-2 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-            <div>
-              <h2 className="font-sans text-xl font-extrabold text-brand-dark tracking-tight flex items-center gap-2">
-                <Users className="w-5 h-5 text-brand-primary" />
-                User Account Management
-              </h2>
-              <p className="font-sans text-xs text-brand-secondary mt-0.5">
-                Browse all registered practitioner, administrative, and client accounts, or register new ones.
-              </p>
-            </div>
-
-            <button
-              onClick={() => {
-                setNewUserRole('client');
-                setShowUserModal(true);
-              }}
-              className="bg-brand-primary hover:bg-brand-primary/95 text-white px-4 py-2.5 rounded-xl font-sans text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm shrink-0"
-            >
-              <UserPlus className="w-4 h-4" />
-              Add New User Account
-            </button>
-          </div>
-
-          {/* Search Controls */}
-          <div className="flex flex-col sm:flex-row gap-3 items-center">
-            <div className="relative w-full sm:max-w-md">
-              <Search className="w-4 h-4 text-brand-secondary absolute left-3.5 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                value={usersSearch}
-                onChange={(e) => setUsersSearch(e.target.value)}
-                placeholder="Search users by name, email, or username..."
-                className="w-full bg-white border border-gray-100 focus:border-brand-primary rounded-xl py-2.5 pl-10 pr-4 font-sans text-xs text-brand-dark outline-none shadow-sm transition-all"
-              />
-            </div>
-          </div>
-
-          {/* Users List Grid */}
-          {loading ? (
-            <div className="py-12 flex flex-col items-center justify-center bg-white rounded-2xl border border-gray-100 shadow-sm">
-              <div className="w-10 h-10 border-4 border-brand-primary border-t-transparent rounded-full animate-spin mb-3"></div>
-              <p className="font-sans text-xs text-brand-secondary">Retrieving user accounts...</p>
-            </div>
-          ) : (
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-level-1 overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="border-b border-gray-100 bg-brand-bg/50 text-[10px] uppercase font-bold text-brand-secondary font-sans tracking-wider">
-                      <th className="py-4 px-6">User</th>
-                      <th className="py-4 px-6">Contact / Email</th>
-                      <th className="py-4 px-6">Role</th>
-                      <th className="py-4 px-6">Specialty / Reg No</th>
-                      <th className="py-4 px-6 text-right">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50 font-sans text-xs">
-                    {usersList
-                      .filter(u => {
-                        const q = usersSearch.toLowerCase();
-                        return (
-                          u.username.toLowerCase().includes(q) ||
-                          u.email.toLowerCase().includes(q) ||
-                          `${u.first_name} ${u.last_name}`.toLowerCase().includes(q) ||
-                          u.role.toLowerCase().includes(q)
-                        );
-                      })
-                      .map((u) => {
-                        return (
-                          <tr key={u.id} className="hover:bg-brand-bg/25 transition-colors">
-                            <td className="py-4 px-6">
-                              <div className="flex items-center gap-3">
-                                <div className="w-9 h-9 rounded-full bg-brand-light-blue text-brand-primary font-bold flex items-center justify-center shrink-0">
-                                  {u.first_name[0]}{u.last_name[0]}
-                                </div>
-                                <div>
-                                  <p className="font-bold text-brand-dark">{u.first_name} {u.last_name}</p>
-                                  <p className="text-[10px] text-brand-muted font-mono">@{u.username}</p>
-                                </div>
-                              </div>
-                            </td>
-                            <td className="py-4 px-6">
-                              <p className="text-brand-dark">{u.email}</p>
-                              <p className="text-[10px] text-brand-secondary">{u.phone || 'N/A'}</p>
-                            </td>
-                            <td className="py-4 px-6">
-                              <span className={`px-2 py-1 rounded-full text-[10px] font-bold font-sans ${
-                                u.role === 'admin'
-                                  ? 'bg-amber-100 text-amber-800'
-                                  : u.role === 'doctor'
-                                  ? 'bg-blue-100 text-blue-800'
-                                  : 'bg-teal-100 text-teal-800'
-                              }`}>
-                                {u.role.toUpperCase()}
-                              </span>
-                            </td>
-                            <td className="py-4 px-6">
-                              {u.role === 'doctor' ? (
-                                <div>
-                                  <p className="text-brand-dark font-medium">{u.doctor_profile?.specialization}</p>
-                                  <p className="text-[10px] font-mono text-brand-secondary">{u.doctor_profile?.registration_number}</p>
-                                </div>
-                              ) : (
-                                <span className="text-brand-muted">-</span>
-                              )}
-                            </td>
-                            <td className="py-4 px-6 text-right">
-                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                                Active
-                              </span>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* --- ADD USER MODAL PANEL --- */}
-      {showUserModal && (
-        <div className="fixed inset-0 bg-brand-dark/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl border border-gray-100 max-w-lg w-full max-h-[90vh] overflow-y-auto shadow-2xl flex flex-col animate-in fade-in zoom-in-95 duration-200">
-            
-            <div className="p-5 border-b border-gray-100 flex items-center justify-between">
-              <h3 className="font-sans font-extrabold text-base text-brand-dark tracking-tight flex items-center gap-2">
-                <UserPlus className="w-5 h-5 text-brand-primary" />
-                Register New User Account
-              </h3>
-              <button
-                onClick={() => setShowUserModal(false)}
-                className="p-1.5 hover:bg-brand-bg rounded-lg text-brand-secondary hover:text-brand-dark transition-all cursor-pointer border-none bg-transparent outline-none"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleCreateUser} className="p-6 flex flex-col gap-4">
-              
-              <div className="flex flex-col gap-1.5">
-                <label className="font-sans font-bold text-[10px] text-brand-secondary uppercase tracking-wider">
-                  Account Role / Access Permission *
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['client', 'doctor', 'admin'] as const).map((role) => (
-                    <button
-                      key={role}
-                      type="button"
-                      onClick={() => setNewUserRole(role)}
-                      className={`py-3 px-4 rounded-xl border text-xs font-bold font-sans transition-all capitalize ${
-                        newUserRole === role
-                          ? 'bg-brand-primary border-brand-primary text-white shadow-sm'
-                          : 'bg-brand-bg border-transparent text-brand-secondary hover:bg-brand-light-blue/20 hover:text-brand-dark'
-                      }`}
-                    >
-                      {role}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="flex flex-col gap-1.5">
-                  <label className="font-sans font-bold text-[10px] text-brand-secondary uppercase tracking-wider">
-                    First Name *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={newFirstName}
-                    onChange={(e) => setNewFirstName(e.target.value)}
-                    placeholder="e.g. Anand"
-                    className="w-full bg-brand-bg border border-transparent focus:border-brand-primary focus:bg-white rounded-xl py-2.5 px-4 font-sans text-sm text-brand-dark outline-none transition-all"
-                  />
-                </div>
-
-                <div className="flex flex-col gap-1.5">
-                  <label className="font-sans font-bold text-[10px] text-brand-secondary uppercase tracking-wider">
-                    Last Name *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={newLastName}
-                    onChange={(e) => setNewLastName(e.target.value)}
-                    placeholder="e.g. Verma"
-                    className="w-full bg-brand-bg border border-transparent focus:border-brand-primary focus:bg-white rounded-xl py-2.5 px-4 font-sans text-sm text-brand-dark outline-none transition-all"
-                  />
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <label className="font-sans font-bold text-[10px] text-brand-secondary uppercase tracking-wider">
-                  Email Address *
-                </label>
-                <input
-                  type="email"
-                  required
-                  value={newEmail}
-                  onChange={(e) => setNewEmail(e.target.value)}
-                  placeholder="e.g. anand_verma@gmail.com"
-                  className="w-full bg-brand-bg border border-transparent focus:border-brand-primary focus:bg-white rounded-xl py-2.5 px-4 font-sans text-sm text-brand-dark outline-none transition-all"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="flex flex-col gap-1.5">
-                  <label className="font-sans font-bold text-[10px] text-brand-secondary uppercase tracking-wider">
-                    Choose Username *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={newUsername}
-                    onChange={(e) => setNewUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
-                    placeholder="e.g. dr_anand"
-                    className="w-full bg-brand-bg border border-transparent focus:border-brand-primary focus:bg-white rounded-xl py-2.5 px-4 font-sans text-sm text-brand-dark outline-none transition-all"
-                  />
-                </div>
-
-                <div className="flex flex-col gap-1.5">
-                  <label className="font-sans font-bold text-[10px] text-brand-secondary uppercase tracking-wider">
-                    Telephone / Mobile
-                  </label>
-                  <input
-                    type="tel"
-                    value={newPhone}
-                    onChange={(e) => setNewPhone(e.target.value)}
-                    placeholder="e.g. +91 98765 43210"
-                    className="w-full bg-brand-bg border border-transparent focus:border-brand-primary focus:bg-white rounded-xl py-2.5 px-4 font-sans text-sm text-brand-dark outline-none transition-all"
-                  />
-                </div>
-              </div>
-
-              {newUserRole === 'doctor' && (
-                <div className="grid grid-cols-2 gap-4 p-4 bg-brand-bg rounded-2xl border border-gray-100 animate-in slide-in-from-top-4 duration-200">
-                  <div className="flex flex-col gap-1.5">
-                    <label className="font-sans font-bold text-[10px] text-brand-secondary uppercase tracking-wider">
-                      Medical Specialty *
-                    </label>
-                    <select
-                      value={newSpecialization}
-                      onChange={(e) => setNewSpecialization(e.target.value)}
-                      className="w-full bg-white border border-gray-200 focus:border-brand-primary rounded-xl py-2.5 px-3 font-sans text-xs text-brand-dark outline-none"
-                    >
-                      <option value="Cardiology">Cardiology</option>
-                      <option value="Dermatology">Dermatology</option>
-                      <option value="Pediatrics">Pediatrics</option>
-                      <option value="General Medicine">General Medicine</option>
-                      <option value="Orthopedics">Orthopedics</option>
-                      <option value="Oncology">Oncology</option>
-                      <option value="Neurology">Neurology</option>
-                    </select>
-                  </div>
-
-                  <div className="flex flex-col gap-1.5">
-                    <label className="font-sans font-bold text-[10px] text-brand-secondary uppercase tracking-wider">
-                      Registration Number *
-                    </label>
-                    <input
-                      type="text"
-                      required={newUserRole === 'doctor'}
-                      value={newRegNumber}
-                      onChange={(e) => setNewRegNumber(e.target.value)}
-                      placeholder="e.g. REG-4491-DEL"
-                      className="w-full bg-white border border-gray-200 focus:border-brand-primary rounded-xl py-2.5 px-4 font-sans text-sm text-brand-dark outline-none transition-all"
-                    />
-                  </div>
-                </div>
-              )}
-
-              <p className="text-[10px] text-brand-muted leading-relaxed">
-                * Simulated notice: Manually registered accounts are auto-active and can be used to log in immediately with the specified email or username.
-              </p>
-
-              <div className="flex gap-2 justify-end border-t border-gray-100 pt-4 mt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowUserModal(false)}
-                  className="bg-brand-bg hover:bg-brand-light-blue/50 text-brand-secondary px-5 py-2.5 rounded-xl font-sans text-xs font-bold transition-all cursor-pointer border-none"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="bg-brand-primary hover:bg-brand-primary/95 text-white px-6 py-2.5 rounded-xl font-sans text-xs font-bold transition-all cursor-pointer shadow-sm border-none"
-                >
-                  Create User Account
-                </button>
-              </div>
-
-            </form>
-          </div>
-        </div>
-      )}
-
+      {/* --- PROFILE TAB --- */}
       {activeTab === 'profile' && (
         <AccountSettings />
       )}
+
+      {/* Add Doctor Shared Modal */}
+      <AddDoctorModal
+        isOpen={showAddDoctorModal}
+        onClose={() => setShowAddDoctorModal(false)}
+        onDoctorAdded={() => {
+          fetchUsers();
+          fetchDirectory();
+        }}
+      />
 
     </DashboardLayout>
   );

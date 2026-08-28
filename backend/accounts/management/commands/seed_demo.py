@@ -21,15 +21,38 @@ class Command(BaseCommand):
         admin_user = User.objects.create_superuser(
             username='admin',
             email='admin@health02.com',
-            password='adminpass',
+            password='admin123',
             role=User.ADMIN,
             first_name='System',
             last_name='Admin'
         )
-        self.stdout.write("Created Admin: admin / adminpass")
+        self.stdout.write("Created Admin: admin / admin123")
 
-        # 2. Verified Doctor User
+        # 2. Verified Doctor User (Anand Verma)
         dr_verified = User.objects.create_user(
+            username='anand_verma',
+            email='doctor_verified@health02.com',
+            password='doctor123',
+            role=User.DOCTOR,
+            first_name='Anand',
+            last_name='Verma',
+            phone='+91 98765 43210'
+        )
+        DoctorProfile.objects.create(
+            user=dr_verified,
+            specialization='Cardiology',
+            registration_number='REG-10948-V',
+            is_verified=True,
+            verified_by=admin_user,
+            verified_at=timezone.now(),
+            education='MBBS, MD (General Medicine), DM (Cardiology)',
+            title='Senior Consultant Interventional Cardiologist',
+            clinic_timings='09:00 AM - 01:00 PM, 04:30 PM - 08:00 PM (Mon-Sat)',
+            bio='Pioneer in preventive heart care with 15+ years of dedicated clinical practice and non-invasive diagnostic excellence.',
+            profile_detail='Specialized in adult cardiology, heart rhythm disorders, lipid management, and non-invasive cardiac evaluation. Operates state-of-the-art ECHO, Holter, and stress test suites at Verma Heart & Healthcare.'
+        )
+        # Also create dr_verified alias
+        dr_verified_alias = User.objects.create_user(
             username='dr_verified',
             email='dr.verified@health02.com',
             password='docpass',
@@ -38,19 +61,39 @@ class Command(BaseCommand):
             last_name='Doctor',
             phone='+1-555-0199'
         )
-        # Create and verify profile
         DoctorProfile.objects.create(
-            user=dr_verified,
+            user=dr_verified_alias,
             specialization='Cardiology',
             registration_number='NMC-98765',
             is_verified=True,
             verified_by=admin_user,
             verified_at=timezone.now()
         )
-        self.stdout.write("Created Verified Doctor: dr_verified / docpass")
+        self.stdout.write("Created Verified Doctor: anand_verma / doctor123 and dr_verified / docpass")
 
         # 3. Unverified Doctor User
         dr_unverified = User.objects.create_user(
+            username='doctor_unverified',
+            email='doctor_unverified@health02.com',
+            password='doctor123',
+            role=User.DOCTOR,
+            first_name='Rakesh',
+            last_name='Patel',
+            phone='+91 98333 44455'
+        )
+        DoctorProfile.objects.create(
+            user=dr_unverified,
+            specialization='Pediatrics',
+            registration_number='REG-55231-UN',
+            is_verified=False,
+            education='MBBS, DCH, DNB (Pediatrics)',
+            title='Primary Care Pediatric Specialist',
+            clinic_timings='09:30 AM - 01:30 PM, 05:00 PM - 08:30 PM (Mon-Sat)',
+            bio='Providing gentle and comprehensive health screenings for newborn and school-aged children.',
+            profile_detail='Features vaccination cold-chain storage, growth milestone charting, and pediatric emergency support.'
+        )
+        # Alias dr_unverified
+        dr_unverified_alias = User.objects.create_user(
             username='dr_unverified',
             email='dr.unverified@health02.com',
             password='docpass',
@@ -60,12 +103,12 @@ class Command(BaseCommand):
             phone='+1-555-0188'
         )
         DoctorProfile.objects.create(
-            user=dr_unverified,
+            user=dr_unverified_alias,
             specialization='Pediatrics',
             registration_number='NMC-12345',
             is_verified=False
         )
-        self.stdout.write("Created Unverified Doctor: dr_unverified / docpass")
+        self.stdout.write("Created Unverified Doctor: doctor_unverified / doctor123")
 
         # 2b. Verified Doctor User: Priya Sharma
         dr_priya = User.objects.create_user(
@@ -108,6 +151,15 @@ class Command(BaseCommand):
         self.stdout.write("Created Verified Doctor Rohan Mehra: dr_rohan / docpass")
 
         # 4. Clients
+        client_user = User.objects.create_user(
+            username='client_user',
+            email='client@health02.com',
+            password='client123',
+            role=User.CLIENT,
+            first_name='Rahul',
+            last_name='Sharma',
+            phone='+91 99999 11111'
+        )
         client_1 = User.objects.create_user(
             username='client_1',
             email='client1@health02.com',
@@ -126,7 +178,18 @@ class Command(BaseCommand):
             last_name='Smith',
             phone='+1-555-0101'
         )
-        self.stdout.write("Created Clients: client_1 / clientpass, client_2 / clientpass")
+        self.stdout.write("Created Clients: client_user / client123, client_1 / clientpass")
+
+        # 5. Support User
+        support_user = User.objects.create_user(
+            username='support_team',
+            email='support@health02.com',
+            password='support123',
+            role=User.SUPPORT,
+            first_name='Support',
+            last_name='Team'
+        )
+        self.stdout.write("Created Support User: support_team / support123")
 
         self.stdout.write("Creating articles...")
 

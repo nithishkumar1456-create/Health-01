@@ -5,11 +5,13 @@ class User(AbstractUser):
     CLIENT = 'client'
     DOCTOR = 'doctor'
     ADMIN = 'admin'
+    SUPPORT = 'support'
     
     ROLE_CHOICES = [
         (CLIENT, 'Client'),
         (DOCTOR, 'Doctor'),
         (ADMIN, 'Admin'),
+        (SUPPORT, 'Support'),
     ]
     
     role = models.CharField(
@@ -19,6 +21,11 @@ class User(AbstractUser):
     )
     phone = models.CharField(
         max_length=20,
+        blank=True,
+        null=True
+    )
+    avatar_url = models.URLField(
+        max_length=500,
         blank=True,
         null=True
     )
@@ -55,6 +62,15 @@ class DoctorProfile(models.Model):
         null=True,
         blank=True
     )
+    # Rich profile fields
+    education = models.CharField(max_length=500, blank=True, default="")
+    title = models.CharField(max_length=255, blank=True, default="")
+    clinic_timings = models.CharField(max_length=255, blank=True, default="")
+    bio = models.TextField(blank=True, default="")
+    profile_detail = models.TextField(blank=True, default="")
+    # Verification request tracking
+    verification_requested = models.BooleanField(default=False)
+    license_file_url = models.URLField(max_length=500, blank=True, null=True)
 
     def __str__(self):
         return f"Dr. {self.user.username} - NMC/Reg No: {self.registration_number} (Verified: {self.is_verified})"

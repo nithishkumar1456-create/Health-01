@@ -10,3 +10,14 @@ Thumbs.db
 *.njsproj
 *.sln
 *.swp
+
+# Build & archive files
+*.zip
+node_modules/
+dist/
+.venv/
+venv/
+__pycache__/
+.env
+db.sqlite3
+

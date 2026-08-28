@@ -1,12 +1,20 @@
 from rest_framework import serializers
-from .models import Doctor
+from .models import Doctor, DoctorReview
 from accounts.serializers import UserSerializer
+
+
+class DoctorReviewSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DoctorReview
+        fields = ['id', 'client_name', 'rating', 'comment', 'date']
+        read_only_fields = ['id', 'date']
+
 
 class DoctorSerializer(serializers.ModelSerializer):
     distance_km = serializers.FloatField(read_only=True, required=False)
-    rating = serializers.SerializerMethodField()
-    review_count = serializers.SerializerMethodField()
-    about = serializers.SerializerMethodField()
+    rating = serializers.FloatField(read_only=True)
+    review_count = serializers.IntegerField(read_only=True)
+    reviews = DoctorReviewSerializer(many=True, read_only=True)
     claimed_by_detail = UserSerializer(source='claimed_by', read_only=True)
 
     class Meta:
@@ -28,19 +36,14 @@ class DoctorSerializer(serializers.ModelSerializer):
             'distance_km',
             'rating',
             'review_count',
+            'reviews',
             'about',
+            'bio',
+            'profile_detail',
+            'education',
+            'title',
+            'clinic_timings',
             'created_at',
             'updated_at'
         ]
-        read_only_fields = ['id', 'osm_id', 'source', 'status', 'claimed_by', 'created_at', 'updated_at']
-
-    def get_rating(self, obj):
-        # Deterministic dummy rating between 4.0 and 4.9 based on ID
-        return round(4.0 + (obj.id % 10) * 0.1, 1)
-
-    def get_review_count(self, obj):
-        # Deterministic dummy review count based on ID
-        return (obj.id % 50) * 3 + 12
-
-    def get_about(self, obj):
-        return f"Sourced via OpenStreetMap. Comprehensive healthcare services provider in {obj.address or 'the local area'}."
+        read_only_fields = ['id', 'osm_id', 'source', 'claimed_by', 'created_at', 'updated_at']

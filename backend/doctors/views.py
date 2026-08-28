@@ -5,9 +5,9 @@ from rest_framework.exceptions import ValidationError
 from django.shortcuts import get_object_or_404
 import math
 
-from .models import Doctor
-from .serializers import DoctorSerializer
-from accounts.permissions import IsAdmin, IsDoctor
+from .models import Doctor, DoctorReview
+from .serializers import DoctorSerializer, DoctorReviewSerializer
+from accounts.permissions import IsAdmin, IsDoctor, IsAdminOrSupport
 
 def haversine(lat1, lon1, lat2, lon2):
     """
@@ -22,34 +22,35 @@ def haversine(lat1, lon1, lat2, lon2):
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     return R * c
 
+
 class DoctorNearbyView(generics.ListAPIView):
     serializer_class = DoctorSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
 
     def get_queryset(self):
         lat_str = self.request.query_params.get('lat')
         lng_str = self.request.query_params.get('lng')
-        if not lat_str or not lng_str:
-            raise ValidationError("lat and lng query parameters are required.")
         
-        try:
-            user_lat = float(lat_str)
-            user_lng = float(lng_str)
-        except ValueError:
-            raise ValidationError("lat and lng must be valid float numbers.")
+        user_lat = 28.57
+        user_lng = 77.22
+        if lat_str and lng_str:
+            try:
+                user_lat = float(lat_str)
+                user_lng = float(lng_str)
+            except ValueError:
+                pass
 
         radius_km = self.request.query_params.get('radius_km')
         if radius_km:
             try:
                 radius_km = float(radius_km)
             except ValueError:
-                raise ValidationError("radius_km must be a float number.")
+                radius_km = None
 
         specialization = self.request.query_params.get('specialization')
 
-        # Load from local database only
-        queryset = Doctor.objects.all()
-        if specialization:
+        queryset = Doctor.objects.prefetch_related('reviews').all()
+        if specialization and specialization.lower() != 'all' and specialization.lower() != 'all specialties':
             queryset = queryset.filter(specialization__iexact=specialization)
 
         results = []
@@ -59,20 +60,18 @@ class DoctorNearbyView(generics.ListAPIView):
                 doc.distance_km = round(dist, 2)
                 results.append(doc)
 
-        # Sort by distance
         results.sort(key=lambda x: x.distance_km)
         return results
 
 
 class DoctorRetrieveDestroyView(generics.RetrieveDestroyAPIView):
-    queryset = Doctor.objects.all()
+    queryset = Doctor.objects.prefetch_related('reviews').all()
     serializer_class = DoctorSerializer
 
     def get_permissions(self):
         if self.request.method == 'DELETE':
             return [IsAdmin()]
-        return [permissions.IsAuthenticated()]
-
+        return [permissions.AllowAny()]
 
 
 class DoctorClaimView(APIView):
@@ -81,7 +80,6 @@ class DoctorClaimView(APIView):
     def post(self, request, pk):
         doctor = get_object_or_404(Doctor, pk=pk)
         
-        # Check if already claimed by someone else
         if doctor.claimed_by:
             if doctor.claimed_by == request.user:
                 return Response(
@@ -95,17 +93,31 @@ class DoctorClaimView(APIView):
         
         doctor.claimed_by = request.user
         
-        # Set status to verified if doctor is verified in accounts profile
-        if hasattr(request.user, 'doctor_profile') and request.user.doctor_profile.is_verified:
-            doctor.status = Doctor.VERIFIED
-            
+        # Sync doctor profile rich fields from user's DoctorProfile
+        if hasattr(request.user, 'doctor_profile'):
+            prof = request.user.doctor_profile
+            if prof.is_verified:
+                doctor.status = Doctor.VERIFIED
+            if prof.specialization:
+                doctor.specialization = prof.specialization
+            if prof.education:
+                doctor.education = prof.education
+            if prof.title:
+                doctor.title = prof.title
+            if prof.clinic_timings:
+                doctor.clinic_timings = prof.clinic_timings
+            if prof.bio:
+                doctor.bio = prof.bio
+            if prof.profile_detail:
+                doctor.profile_detail = prof.profile_detail
+
         doctor.save()
         serializer = DoctorSerializer(doctor)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class DoctorVerifyView(APIView):
-    permission_classes = [IsAdmin]
+    permission_classes = [IsAdminOrSupport]
 
     def post(self, request, pk):
         doctor = get_object_or_404(Doctor, pk=pk)
@@ -116,4 +128,39 @@ class DoctorVerifyView(APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
+class DoctorReviewView(APIView):
+    """POST /api/doctors/<pk>/reviews/ — Add a review for a doctor."""
+    permission_classes = [permissions.IsAuthenticated]
 
+    def post(self, request, pk):
+        doctor = get_object_or_404(Doctor, pk=pk)
+        
+        client_name = request.data.get('clientName') or request.data.get('client_name')
+        if not client_name:
+            client_name = f"{request.user.first_name} {request.user.last_name}".strip() or request.user.username
+
+        rating = request.data.get('rating')
+        if rating is None:
+            return Response({"detail": "rating is required."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            rating = int(rating)
+            if not (1 <= rating <= 5):
+                raise ValueError
+        except (ValueError, TypeError):
+            return Response({"detail": "rating must be an integer between 1 and 5."}, status=status.HTTP_400_BAD_REQUEST)
+
+        comment = request.data.get('comment', '')
+
+        review = DoctorReview.objects.create(
+            doctor=doctor,
+            client=request.user,
+            client_name=client_name,
+            rating=rating,
+            comment=comment
+        )
+
+        # Return the full updated doctor listing
+        doctor.refresh_from_db()
+        serializer = DoctorSerializer(doctor)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)

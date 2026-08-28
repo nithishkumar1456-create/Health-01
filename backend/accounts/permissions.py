@@ -36,3 +36,27 @@ class IsVerifiedDoctor(permissions.BasePermission):
             hasattr(request.user, 'doctor_profile') and 
             request.user.doctor_profile.is_verified
         )
+
+
+class IsSupport(permissions.BasePermission):
+    """
+    Allows access only to support role users.
+    """
+    def has_permission(self, request, view):
+        return (
+            request.user and 
+            request.user.is_authenticated and 
+            request.user.role == 'support'
+        )
+
+
+class IsAdminOrSupport(permissions.BasePermission):
+    """
+    Allows access to admin or support users.
+    """
+    def has_permission(self, request, view):
+        return (
+            request.user and 
+            request.user.is_authenticated and 
+            request.user.role in ['admin', 'support']
+        )

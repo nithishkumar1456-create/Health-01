@@ -5,7 +5,7 @@ import { User } from '../types';
 
 interface RoleGuardProps {
   children: React.ReactNode;
-  allowedRoles: ('client' | 'doctor' | 'admin')[];
+  allowedRoles: ('client' | 'doctor' | 'admin' | 'support')[];
 }
 
 export default function RoleGuard({ children, allowedRoles }: RoleGuardProps) {
@@ -53,6 +53,8 @@ export default function RoleGuard({ children, allowedRoles }: RoleGuardProps) {
       return <Navigate to="/doctor" replace />;
     } else if (user.role === 'admin') {
       return <Navigate to="/admin" replace />;
+    } else if (user.role === 'support') {
+      return <Navigate to="/support" replace />;
     }
   }
 

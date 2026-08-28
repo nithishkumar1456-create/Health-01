@@ -1,6 +1,7 @@
 import { useState, FormEvent } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { api } from '../services/api';
+import LogoIcon from './LogoIcon';
 import { Activity, ShieldCheck, ShieldAlert, ArrowLeft } from 'lucide-react';
 export default function Register() {
   const [role, setRole] = useState<'client' | 'doctor'>('client');
@@ -66,11 +67,19 @@ export default function Register() {
       <div className="flex-grow flex items-center justify-center px-4 py-8">
         <div className="w-full max-w-lg bg-white rounded-2xl shadow-level-3 border border-gray-100 p-8 flex flex-col gap-5">
           
-          <div className="flex items-center gap-2">
-            <Link to="/login" className="p-1.5 rounded-lg hover:bg-brand-bg text-brand-secondary cursor-pointer transition-colors">
-              <ArrowLeft className="w-4 h-4" />
-            </Link>
-            <span className="font-sans text-xs text-brand-muted font-semibold uppercase tracking-wider">Back to Login</span>
+          <div className="flex items-center justify-between border-b border-gray-50 pb-3">
+            <div className="flex items-center gap-2">
+              <Link to="/login" className="p-1.5 rounded-lg hover:bg-brand-bg text-brand-secondary cursor-pointer transition-colors">
+                <ArrowLeft className="w-4 h-4" />
+              </Link>
+              <span className="font-sans text-xs text-brand-muted font-semibold uppercase tracking-wider">Back to Login</span>
+            </div>
+            <div className="flex items-center gap-1.5 cursor-pointer" onClick={() => navigate('/')} title="Go to Home">
+              <LogoIcon className="w-6.5 h-6.5 text-brand-primary" />
+              <span className="font-sans text-sm font-extrabold text-brand-dark tracking-tight">
+                Medi<span className="text-brand-accent">Q</span>
+              </span>
+            </div>
           </div>
 
           <div className="text-center md:text-left">

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import DOMPurify from 'dompurify';
 import { api } from '../services/api';
 import { Article } from '../types';
 import { BookOpen, FileText, ChevronRight, Activity } from 'lucide-react';
@@ -9,10 +10,6 @@ export default function HealthJournal() {
   const [articles, setArticles] = useState<Article[]>([]);
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetchArticles();
-  }, [selectedTag]);
 
   const fetchArticles = async () => {
     setLoading(true);
@@ -28,6 +25,10 @@ export default function HealthJournal() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    fetchArticles();
+  }, [selectedTag]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -201,9 +202,18 @@ export default function HealthJournal() {
               </h1>
 
               <div className="flex items-center gap-3 border-y border-gray-100 py-3">
-                <div className="w-10 h-10 rounded-full bg-brand-light-blue text-brand-primary font-sans font-bold flex items-center justify-center">
-                  {selectedArticle.author.first_name[0]}{selectedArticle.author.last_name[0]}
-                </div>
+                {selectedArticle.author.avatar_url ? (
+                  <img
+                    src={selectedArticle.author.avatar_url}
+                    alt=""
+                    className="w-10 h-10 rounded-full object-cover shadow-sm border border-brand-light-blue/40 shrink-0"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <div className="w-10 h-10 rounded-full bg-brand-light-blue text-brand-primary font-sans font-bold flex items-center justify-center shrink-0">
+                    {selectedArticle.author.first_name[0]}{selectedArticle.author.last_name[0]}
+                  </div>
+                )}
                 <div>
                   <p className="font-sans text-xs font-bold text-brand-dark">
                     Written by Dr. {selectedArticle.author.first_name} {selectedArticle.author.last_name}
@@ -218,9 +228,16 @@ export default function HealthJournal() {
                 {selectedArticle.summary}
               </p>
 
-              <div className="font-sans text-sm text-brand-secondary leading-relaxed space-y-4 whitespace-pre-line prose max-w-none pt-2">
-                {selectedArticle.content}
-              </div>
+              {selectedArticle.content.includes('<') && selectedArticle.content.includes('>') ? (
+                <div 
+                  className="font-sans text-sm text-brand-secondary leading-relaxed space-y-4 prose max-w-none pt-2 overflow-hidden"
+                  dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(selectedArticle.content) }}
+                />
+              ) : (
+                <div className="font-sans text-sm text-brand-secondary leading-relaxed space-y-4 whitespace-pre-line prose max-w-none pt-2">
+                  {selectedArticle.content}
+                </div>
+              )}
             </div>
           </div>
         </div>

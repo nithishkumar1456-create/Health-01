@@ -50,6 +50,8 @@ INSTALLED_APPS = [
     'accounts',
     'blog',
     'doctors',
+    'support',
+    'queue_app',
 ]
 
 MIDDLEWARE = [
@@ -157,8 +159,22 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 AUTH_USER_MODEL = 'accounts.User'
 
 # CORS Settings
+CORS_ALLOW_ALL_ORIGINS = DEBUG
 CORS_ALLOWED_ORIGINS = [
-    origin.strip() for origin in config('CORS_ALLOWED_ORIGINS', default='http://localhost:3000').split(',') if origin.strip()
+    origin.strip() for origin in config('CORS_ALLOWED_ORIGINS', default='http://localhost:3000,http://localhost:3001,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:3001,http://127.0.0.1:5173').split(',') if origin.strip()
+]
+
+# Allow credentials (for JWT Authorization header)
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
 ]
 
 # Django REST Framework Settings
