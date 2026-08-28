@@ -149,6 +149,7 @@ class ProfileUpdateSerializer(serializers.ModelSerializer):
 
 
 class AdminCreateUserSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(required=False, allow_blank=True)
     password = serializers.CharField(write_only=True, required=False, allow_blank=True)
     specialization = serializers.CharField(required=False, allow_blank=True, write_only=True)
     registration_number = serializers.CharField(required=False, allow_blank=True, write_only=True)
@@ -165,6 +166,33 @@ class AdminCreateUserSerializer(serializers.ModelSerializer):
             'specialization', 'registration_number', 'qualifications', 'medical_council',
             'clinic_name', 'consultation_fee', 'is_verified'
         ]
+
+    def validate(self, attrs):
+        username = attrs.get('username', '').strip()
+        email = attrs.get('email', '').strip()
+
+        if not username:
+            first_name = attrs.get('first_name', '').lower().strip()
+            last_name = attrs.get('last_name', '').lower().strip()
+            base = f"{first_name}_{last_name}".strip('_') or 'doctor'
+            base = "".join(c for c in base if c.isalnum() or c == '_')
+            candidate = base
+            counter = 1
+            while User.objects.filter(username=candidate).exists():
+                candidate = f"{base}_{counter}"
+                counter += 1
+            attrs['username'] = candidate
+        else:
+            clean_username = username.lower().replace(' ', '_')
+            clean_username = "".join(c for c in clean_username if c.isalnum() or c in ['_', '.', '@', '+', '-'])
+            if User.objects.filter(username=clean_username).exists():
+                raise serializers.ValidationError({"username": f"User with username '{clean_username}' already exists."})
+            attrs['username'] = clean_username
+
+        if email and User.objects.filter(email=email).exists():
+            raise serializers.ValidationError({"email": f"User with email '{email}' already exists."})
+
+        return attrs
 
     def create(self, validated_data):
         import secrets

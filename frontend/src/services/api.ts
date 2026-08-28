@@ -348,13 +348,23 @@ class ApiService {
     try {
       const res = await fetch(url, { ...options, headers });
       if (!res.ok) {
-        let errorData;
+        let errorData: any = {};
         try {
           errorData = await res.json();
         } catch {
           errorData = { detail: res.statusText };
         }
-        throw new Error(errorData.detail || errorData.error || `Request failed with status ${res.status}`);
+        let message = errorData.detail || errorData.error;
+        if (!message && typeof errorData === 'object' && errorData !== null) {
+          const keys = Object.keys(errorData);
+          if (keys.length > 0) {
+            message = keys.map(k => {
+              const val = errorData[k];
+              return Array.isArray(val) ? `${k}: ${val.join(', ')}` : `${k}: ${val}`;
+            }).join(' | ');
+          }
+        }
+        throw new Error(message || `Request failed with status ${res.status}`);
       }
       if (res.status === 204) return {} as T;
       return await res.json() as T;

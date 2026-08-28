@@ -39,7 +39,8 @@ export default function AddDoctorModal({ isOpen, onClose, onDoctorAdded }: AddDo
     setError(null);
 
     try {
-      const generatedUsername = username.trim() || `${firstName.toLowerCase()}_${lastName.toLowerCase()}_${Math.floor(Math.random() * 1000)}`;
+      const rawUser = username.trim() || `${firstName}_${lastName}_${Math.floor(Math.random() * 1000)}`;
+      const generatedUsername = rawUser.toLowerCase().replace(/[^a-z0-9_]/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '');
 
       await api.adminCreateUser({
         username: generatedUsername,
